@@ -1,0 +1,216 @@
+openapi: 3.0.3
+info:
+  title: DocFoundry API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8001
+paths:
+  /search:
+    post:
+      summary: Hybrid search over indexed content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                q: { type: string }
+                top_k: { type: integer, default: 10 }
+                hybrid: { type: boolean, default: true }
+                use_reranker: { type: boolean, default: false }
+                filters:
+                  type: object
+                  properties:
+                    source: { type: array, items: { type: string } }
+                    lang: { type: string }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query: { type: string }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        doc_id: { type: string }
+                        chunk_id: { type: string }
+                        score: { type: number }
+                        title: { type: string }
+                        url: { type: string }
+                        h_path: { type: array, items: { type: string } }
+                        snippet: { type: string }
+                        retrieved_at: { type: string, format: date-time }
+  /search/semantic:
+    post:
+      summary: Pure semantic search using vector similarity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query: { type: string }
+                limit: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: Semantic search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        score: { type: number }
+                        section: { type: string }
+                        path: { type: string }
+                        text: { type: string }
+  /search/hybrid:
+    post:
+      summary: Combined full-text and semantic search with weighted scoring
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query: { type: string }
+                limit: { type: integer, default: 10 }
+                fts_weight: { type: number, default: 0.7 }
+                semantic_weight: { type: number, default: 0.3 }
+      responses:
+        '200':
+          description: Hybrid search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        score: { type: number }
+                        section: { type: string }
+                        path: { type: string }
+                        text: { type: string }
+  /doc/{doc_id}:
+    get:
+      summary: Fetch a normalized document with metadata
+      parameters:
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  doc_id: { type: string }
+                  url: { type: string }
+                  frontmatter: { type: object }
+                  markdown: { type: string }
+  /ingest:
+    post:
+      summary: Enqueue ingestion for a source or URLs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source: { type: string, description: Source name from YAML }
+                urls: { type: array, items: { type: string } }
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string }
+  /jobs/{id}:
+    get:
+      summary: Get job status/logs
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string, enum: [queued, running, done, failed] }
+                  logs: { type: array, items: { type: string } }
+  /sources:
+    get:
+      summary: List available sources
+      responses:
+        '200':
+          description: Sources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        base_urls: { type: array, items: { type: string } }
+                        enabled: { type: boolean }
+  /capture:
+    post:
+      summary: Capture an ad-hoc page from the browser extension
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string }
+                html: { type: string }
+                screenshot_path: { type: string }
+      responses:
+        '201':
+          description: Created research note
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  doc_id: { type: string }
+                  path: { type: string }
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
