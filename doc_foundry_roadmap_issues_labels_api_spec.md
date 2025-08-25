@@ -1,17 +1,38 @@
 # DocFoundry – Roadmap Issues, Labels & API Spec
 
+## 🎯 PRIORITY NEXT STEPS
+
+### **HIGH PRIORITY** - Ready for Implementation
+1. **[Hybrid Search]** Vector + keyword search with score fusion (FTS5 + embeddings with RRF)
+2. **[Jobs & Scheduling]** Background task processing for periodic crawls
+3. **[Policy Guardrails]** License/robots/noai compliance and content filtering
+
+### **MEDIUM PRIORITY** - Foundation Building
+4. **[MCP Server]** Minimal Model Context Protocol implementation
+5. **[Learning-to-Rank]** Click feedback and ranking improvements
+6. **[Advanced Features]** Enhanced search filters and faceting
+
+### **LOW PRIORITY** - Future Enhancements
+7. **[UI/UX]** Advanced search interface improvements
+8. **[Performance]** Caching and optimization
+9. **[Integration]** Third-party connectors and extensions
+
+---
+
+## 📋 COMPLETED COMPONENTS
+
 This package contains:
 
-1) **Issue labels** (names, descriptions, colors)
-2) **GitHub issues** ready to paste (grouped by milestone/area)
-3) **OpenAPI spec (`openapi.yaml`)** for new/updated endpoints
-4) **Source schema v1** (YAML + JSON Schema)
-5) **Chunker module stub** (Python)
-6) **pgvector migration** (SQL) + minimal ORM model
-7) **Makefile targets**
-8) **Observability hooks** (OpenTelemetry + Prometheus)
-9) **Evaluation harness skeleton**
-10) **`gh` CLI script** to create labels & issues programmatically
+1) **Issue labels** (names, descriptions, colors) ✅ **COMPLETED**
+2) **GitHub issues** ready to paste (grouped by milestone/area) ✅ **COMPLETED**
+3) **OpenAPI spec (`openapi.yaml`)** for new/updated endpoints ✅ **COMPLETED**
+4) **Source schema v1** (YAML + JSON Schema) ✅ **COMPLETED**
+5) **Chunker module stub** (Python) ✅ **COMPLETED**
+6) **pgvector migration** (SQL) + minimal ORM model ✅ **COMPLETED**
+7) **Makefile targets** ✅ **COMPLETED**
+8) **Observability hooks** (OpenTelemetry + Prometheus) ✅ **COMPLETED**
+9) **Evaluation harness skeleton** ✅ **COMPLETED**
+10) **`gh` CLI script** to create labels & issues programmatically ✅ **COMPLETED**
 
 ---
 
@@ -71,33 +92,37 @@ Build a resilient HTML fetcher with polite crawling and incremental updates.
 
 ---
 
-#### [Pipelines] Source file schema v1 & validator
+#### [Pipelines] Source file schema v1 & validator ✅ **COMPLETED**
 **Labels:** `pipelines`, `core`, `kind:enhancement`
 
 **Goal**
 Define a stable YAML schema for sources and provide a validator.
 
 **Acceptance Criteria**
-- [ ] Schema covers: `name`, `base_urls[]`, `sitemaps[]`, `include[]`, `exclude[]`, `rate_limit`, `depth`, `priority`, `auth`, `license_hint`
-- [ ] CLI: `python pipelines/validate_source.py sources/*.yaml`
-- [ ] Fails with line/column and helpful message on invalid fields
+- [x] Schema covers: `name`, `base_urls[]`, `sitemaps[]`, `include[]`, `exclude[]`, `rate_limit`, `depth`, `priority`, `auth`, `license_hint`
+- [x] CLI: `python pipelines/validate_source.py sources/*.yaml`
+- [x] Fails with line/column and helpful message on invalid fields
+
+**Implementation Status:** Complete - Source schema implemented in `indexer/source_schema.py` with comprehensive validation
 
 ---
 
-#### [Indexer] Heading-aware chunker + metadata
+#### [Indexer] Heading-aware chunker + metadata ✅ **COMPLETED**
 **Labels:** `indexer`, `core`, `priority:now`, `kind:enhancement`
 
 **Goal**
 Split Markdown into retrieval-friendly chunks while preserving section context.
 
 **Acceptance Criteria**
-- [ ] Configurable token budget & overlap; respects headings and code fences
-- [ ] Emits: `chunk_id`, `doc_id`, `h_path` (H1→Hn), `url`, `retrieved_at`, `hash`, `token_len`, `lang`
-- [ ] Deterministic hashing; idempotent re-chunking
+- [x] Configurable token budget & overlap; respects headings and code fences
+- [x] Emits: `chunk_id`, `doc_id`, `h_path` (H1→Hn), `url`, `retrieved_at`, `hash`, `token_len`, `lang`
+- [x] Deterministic hashing; idempotent re-chunking
+
+**Implementation Status:** Complete - Full implementation in `indexer/chunker.py` with heading-aware splitting and metadata
 
 ---
 
-#### [Indexer] Hybrid search (FTS5 + embeddings) with RRF
+#### [Indexer] Hybrid search (FTS5 + embeddings) with RRF 🔥 **HIGH PRIORITY**
 **Labels:** `indexer`, `performance`, `kind:enhancement`
 
 **Goal**
@@ -108,50 +133,58 @@ Blend lexical (BM25) and vector search; optional cross-encoder rerank.
 - [ ] Reciprocal Rank Fusion to combine FTS and vector top-k
 - [ ] Feature flag for reranker; configurable model name
 
+**Next Steps:** Implement FTS5 integration and RRF scoring algorithm
+
 ---
 
-#### [Server] API v1 polish + streaming responses
+#### [Server] API v1 polish + streaming responses ✅ **COMPLETED**
 **Labels:** `server`, `core`, `kind:enhancement`
 
 **Goal**
 Harden the FastAPI surface and add endpoints for ingestion & jobs.
 
 **Acceptance Criteria**
-- [ ] Endpoints implemented per `openapi.yaml`
-- [ ] API keys + CORS + structured error model
-- [ ] Server-Sent Events (SSE) for streaming `/search`
-- [ ] OpenAPI served at `/openapi.json` and docs at `/docs`
+- [x] Endpoints implemented per `openapi.yaml`
+- [x] API keys + CORS + structured error model
+- [x] Server-Sent Events (SSE) for streaming `/search`
+- [x] OpenAPI served at `/openapi.json` and docs at `/docs`
+
+**Implementation Status:** Complete - Full API implementation with authentication, CORS, and streaming responses
 
 ---
 
-#### [Observability] OpenTelemetry + Prometheus
+#### [Observability] OpenTelemetry + Prometheus ✅ **COMPLETED**
 **Labels:** `observability`, `ops`
 
 **Goal**
 Trace ingest→index→query; export standard metrics.
 
 **Acceptance Criteria**
-- [ ] Traces for each request; span attributes for source, bytes, durations
-- [ ] `/metrics` exposes counters/histograms; Kubernetes ready
-- [ ] Dashboards stub in `hosting/grafana/`
+- [x] Traces for each request; span attributes for source, bytes, durations
+- [x] `/metrics` exposes counters/histograms; Kubernetes ready
+- [x] Dashboards stub in `hosting/grafana/`
+
+**Implementation Status:** Complete - Full observability stack implemented with OpenTelemetry tracing and Prometheus metrics
 
 ---
 
-#### [Eval] Gold set + metrics runner
+#### [Eval] Gold set + metrics runner ✅ **COMPLETED**
 **Labels:** `eval`, `indexer`, `server`
 
 **Goal**
 Create a minimal evaluation harness to track search quality.
 
 **Acceptance Criteria**
-- [ ] `df eval run` computes `nDCG@k`, `MRR` on a small gold set per source
-- [ ] Markdown report in `docs/reports/` with trend chart
+- [x] `df eval run` computes `nDCG@k`, `MRR` on a small gold set per source
+- [x] Markdown report in `docs/reports/` with trend chart
+
+**Implementation Status:** Complete - Evaluation harness implemented with quality metrics and reporting
 
 ---
 
 ### Milestone: **Team Grade** (Tier 2)
 
-#### [Server] Jobs & scheduling (periodic crawls)
+#### [Server] Jobs & scheduling (periodic crawls) 🔥 **HIGH PRIORITY**
 **Labels:** `server`, `ops`, `kind:enhancement`
 
 **Goal**
@@ -161,9 +194,11 @@ Introduce job records and periodic crawl triggers; webhooks on change.
 - [ ] `POST /ingest` enqueues; `GET /jobs/{id}` returns status/logs
 - [ ] Simple APScheduler; emit webhook on new/changed docs
 
+**Next Steps:** Set up Redis and implement basic job queue with APScheduler
+
 ---
 
-#### [Policy] License/robots/noai guardrails
+#### [Policy] License/robots/noai guardrails 🔥 **HIGH PRIORITY**
 **Labels:** `policy`, `pipelines`, `security`
 
 **Goal**
@@ -173,9 +208,11 @@ Block non-compliant sources; annotate chunks with policy metadata.
 - [ ] SPDX text matching; robots/noai respected; per-source allowlist
 - [ ] Policy violations surfaced in `/ingest` logs and `/doc` metadata
 
+**Next Steps:** Implement robots.txt parsing and basic content filtering
+
 ---
 
-#### [MCP] Minimal Model Context Protocol server
+#### [MCP] Minimal Model Context Protocol server 🟡 **MEDIUM PRIORITY**
 **Labels:** `mcp`, `server`
 
 **Goal**
@@ -183,6 +220,8 @@ Expose `search`, `fetch_doc`, `list_sources`, `capture_url` over MCP.
 
 **Acceptance Criteria**
 - [ ] Stdio/socket server; JSON-RPC; client example included
+
+**Next Steps:** Create MCP server implementation using the MCP Python SDK
 
 ---
 
