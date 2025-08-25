@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS chunks (
   document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   heading TEXT,
   anchor TEXT,
-  text TEXT NOT NULL
+  text TEXT NOT NULL,
+  embedding BLOB  -- Store vector embeddings as binary data
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(

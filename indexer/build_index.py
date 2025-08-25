@@ -1,6 +1,7 @@
-# Builds a SQLite FTS5 index from docs/*.md.
+# Builds a SQLite FTS5 index from docs/*.md and generates embeddings.
 
-import os, re, sys, pathlib, hashlib, sqlite3
+import os, re, sys, pathlib, hashlib, sqlite3, logging
+from embeddings import EmbeddingManager
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 DOCS_DIR = BASE_DIR / "docs"
@@ -80,15 +81,43 @@ def index_file(conn, path: pathlib.Path):
     return 1
 
 def main():
+    # Setup logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA case_sensitive_like=OFF")
     ensure_schema(conn)
-    conn.execute("DELETE FROM chunks_fts")
+    
+    # Clear FTS5 table properly (contentless FTS5 tables need to be dropped and recreated)
+    conn.execute("DROP TABLE IF EXISTS chunks_fts")
+    conn.execute("""
+        CREATE VIRTUAL TABLE chunks_fts USING fts5(
+            text, heading, anchor, path UNINDEXED, content='',
+            tokenize = 'porter'
+        )
+    """)
+    
     added = 0
     for p in DOCS_DIR.rglob("*.md"):
         added += index_file(conn, p)
     conn.commit()
     print(f"Indexed {added} files into {DB_PATH}")
+    
+    # Generate embeddings for all chunks
+    if added > 0:
+        logger.info("Generating embeddings for indexed chunks...")
+        try:
+            embedding_manager = EmbeddingManager(str(DB_PATH))
+            embedding_manager.update_chunk_embeddings()
+            logger.info("Embedding generation completed successfully")
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {e}")
+            print(f"Warning: Embedding generation failed: {e}")
+    else:
+        logger.info("No new files indexed, skipping embedding generation")
+    
+    conn.close()
 
 if __name__ == "__main__":
     main()
