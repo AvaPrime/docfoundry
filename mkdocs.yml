@@ -1,0 +1,21 @@
+site_name: Codessa Atlas (DocFoundry)
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - content.code.copy
+plugins:
+  - search
+  - include-markdown
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Research: research/README.md
+  - Vendors: 
+      - (placeholder): vendors/.gitkeep

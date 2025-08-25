@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "DocFoundry Capture",
+  "version": "0.0.1",
+  "description": "Capture the current page into DocFoundry research notes.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Save to DocFoundry"
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ]
+}

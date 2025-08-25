@@ -1,0 +1,24 @@
+id: openrouter
+kind: docs
+home: https://openrouter.ai/docs
+preferred: html   # repo|raw|html
+license: unknown  # update if known (e.g., CC-BY-4.0)
+crawl:
+  sitemap: true
+  seeds:
+    - https://openrouter.ai/docs
+  allow:
+    - /docs/**
+    - /api/**
+  deny:
+    - /blog/**
+    - /pricing/**
+  css_selectors:
+    content: "main, article, #content"
+    nav: "nav a"
+update:
+  mode: poll
+  poll_every: 24h
+importance_rules:
+  - pattern: "(breaking|deprecat|auth|quota|model)"
+    weight: 0.9
