@@ -1,111 +1,157 @@
-# DocFoundry – Roadmap Issues, Labels & API Spec
+# 📋 DocFoundry – Roadmap, Issues, Labels & API Specification
+
+> **Last Updated:** January 2025  
+> **Status:** Production Ready with Active Development  
+> **Version:** v1.2.0  
+
+---
 
 ## 🎯 PRIORITY NEXT STEPS
 
-### **COMPLETED FEATURES** ✅
-1. **[Hybrid Search]** Vector + keyword search with score fusion (FTS5 + embeddings with RRF) ✅ **COMPLETED**
-2. **[Jobs & Scheduling]** Background task processing for periodic crawls ✅ **COMPLETED**
-3. **[Policy Guardrails]** License/robots/noai compliance and content filtering ✅ **COMPLETED**
-4. **[MCP Server]** Minimal Model Context Protocol implementation ✅ **COMPLETED**
-5. **[Learning-to-Rank]** Click feedback and ranking improvements ✅ **COMPLETED**
-6. **[Crawler Enhancement]** Enhanced error handling and retry mechanisms ✅ **COMPLETED**
+### **✅ COMPLETED FEATURES**
 
-### **REMAINING PRIORITIES** - Future Enhancements
+#### **High Priority Infrastructure (Production Ready)**
+1. **✅ [Hybrid Search]** Vector + keyword search with score fusion (FTS5 + embeddings with RRF)
+2. **✅ [Jobs & Scheduling]** Background task processing for periodic crawls with Redis/Celery
+3. **✅ [Policy Guardrails]** License/robots/noai compliance and content filtering with SPDX matching
+4. **✅ [MCP Server]** Model Context Protocol implementation for AI assistant integration
+5. **✅ [Learning-to-Rank]** Click feedback system with offline training and online scoring
+6. **✅ [Crawler Enhancement]** Robust HTML fetcher with robots.txt support and error handling
+7. **✅ [PostgreSQL Migration]** Database migration from SQLite to PostgreSQL with pgvector support
+8. **✅ [OpenTelemetry Integration]** Complete observability stack with distributed tracing and metrics
+9. **✅ [API Streaming]** Server-Sent Events for real-time search results and enhanced UX
+10. **✅ [Heading-aware Chunker]** Enhanced document chunker with stable IDs and metadata extraction
 
-#### **HIGH PRIORITY**
+---
 
-##### PostgreSQL Migration with pgvector
-**Status**: PENDING ⏳
-**Priority**: HIGH - Critical for production scalability
-- [ ] Set up PostgreSQL database with pgvector extension
-- [ ] Migrate schema from SQLite to PostgreSQL
-- [ ] Update embedding storage to use pgvector
-- [ ] Implement connection pooling and optimization
-- [ ] Add database migration scripts
-- [ ] Update all queries to use PostgreSQL syntax
+### **⏳ REMAINING PRIORITIES** - Future Enhancements
 
-##### OpenTelemetry Integration & Metrics
-**Status**: PENDING ⏳
-**Priority**: HIGH - Essential for production monitoring
-- [ ] Complete OpenTelemetry instrumentation setup
-- [ ] Add comprehensive metrics collection
-- [ ] Implement distributed tracing
-- [ ] Set up Prometheus metrics export
-- [ ] Add performance monitoring dashboards
-- [ ] Configure alerting and monitoring
+#### **HIGH PRIORITY** - Critical for Production Readiness
 
-##### API v1 Polish + Streaming Responses
-**Status**: PENDING ⏳
-**Priority**: HIGH - Improves user experience significantly
-- [ ] Implement streaming search responses
-- [ ] Add proper error handling and status codes
-- [ ] Implement request validation and sanitization
-- [ ] Add rate limiting and authentication
-- [ ] Complete OpenAPI documentation
-- [ ] Add response caching headers
+*All high-priority infrastructure items have been completed and moved to the COMPLETED FEATURES section above.*
 
-#### **MEDIUM PRIORITY**
+#### **MEDIUM PRIORITY** - Quality & Reliability Enhancements
 
-##### Heading-aware Chunker + Metadata
-**Status**: PENDING ⏳
-**Priority**: MEDIUM - Enhances content organization
-- [ ] Parse heading hierarchy from Markdown
-- [ ] Generate stable chunk IDs based on content hash
-- [ ] Store heading paths as metadata
-- [ ] Update chunker to preserve document structure
-- [ ] Add support for nested heading extraction
-- [ ] Implement content-aware chunking strategies
+##### 1. Gold Set + Metrics Runner Enhancement
+**Status**: PENDING ⏳  
+**Labels**: `enhancement`, `evaluation`, `metrics`  
+**Priority**: MEDIUM - Essential for quality measurement and continuous improvement  
+**Impact**: High - Enables data-driven optimization and quality assurance  
+**Effort**: Medium - Requires evaluation framework design and implementation  
+**Assignee**: TBD
 
-##### Source Schema Validation Enhancement
-**Status**: PENDING ⏳
-**Priority**: MEDIUM - Improves data quality assurance
-- [ ] Extend validation rules for complex source types
-- [ ] Add schema versioning and migration support
-- [ ] Implement validation reporting and logging
-- [ ] Add support for custom validation rules
-- [ ] Create validation test suite
+**Description:**
+Enhance the evaluation framework with more sophisticated metrics and automated quality assessment.
 
-##### Gold Set + Metrics Runner
-**Status**: PENDING ⏳
-**Priority**: MEDIUM - Essential for quality measurement
-- [ ] Create evaluation framework infrastructure
-- [ ] Implement gold standard dataset management
-- [ ] Add automated metrics calculation
-- [ ] Create performance benchmarking suite
-- [ ] Add A/B testing capabilities
-- [ ] Implement continuous evaluation pipeline
+**Acceptance Criteria:**
+- [ ] Extended evaluation framework infrastructure
+- [ ] Advanced gold standard dataset management
+- [ ] Automated metrics calculation (nDCG@k, MRR, precision@k)
+- [ ] Performance benchmarking suite with historical tracking
+- [ ] A/B testing capabilities for search improvements
+- [ ] Continuous evaluation pipeline with alerts
+- [ ] Integration with monitoring dashboards
 
-#### **LOW PRIORITY** - Future Enhancements
+**Business Value:** Critical for measuring and improving search quality over time
 
-##### Enhanced Web UI & Search Experience
-**Status**: PENDING ⏳
-**Priority**: LOW - User experience improvements
-- [ ] Implement advanced search filters and faceting
-- [ ] Add search result highlighting and snippets
-- [ ] Create responsive design for mobile devices
-- [ ] Add search history and saved searches
-- [ ] Implement user preferences and customization
-- [ ] Add dark mode and accessibility features
+---
 
-##### Caching & Performance Optimization
-**Status**: PENDING ⏳
-**Priority**: LOW - Performance enhancements
-- [ ] Implement Redis-based result caching
-- [ ] Add embedding cache for frequently accessed vectors
-- [ ] Optimize database queries and indexing
-- [ ] Implement connection pooling
-- [ ] Add CDN support for static assets
-- [ ] Create performance monitoring and alerting
+##### 2. Source Schema Validation Enhancement
+**Status**: PENDING ⏳  
+**Labels**: `enhancement`, `validation`, `quality`  
+**Priority**: MEDIUM - Improves data quality assurance  
+**Impact**: Medium - Prevents data quality issues and improves reliability  
+**Effort**: Low-Medium - Extension of existing validation system  
+**Assignee**: TBD
 
-##### Third-party Integrations & Connectors
-**Status**: PENDING ⏳
-**Priority**: LOW - Ecosystem expansion
-- [ ] Add Slack/Discord bot integration
-- [ ] Implement Notion and Confluence connectors
-- [ ] Add Google Drive and SharePoint support
-- [ ] Create Zapier/Make.com integrations
-- [ ] Add webhook support for real-time updates
-- [ ] Implement SSO and enterprise authentication
+**Description:**
+Extend the existing source schema validation system with advanced features for better data quality assurance.
+
+**Acceptance Criteria:**
+- [ ] Extended validation rules for complex source types
+- [ ] Schema versioning and migration support
+- [ ] Validation reporting and logging system
+- [ ] Support for custom validation rules
+- [ ] Comprehensive validation test suite
+- [ ] Integration with CI/CD pipeline
+
+**Business Value:** Ensures data integrity and reduces debugging time
+
+---
+
+#### **LOW PRIORITY** - User Experience & Performance Enhancements
+
+##### 3. Enhanced Web UI & Search Experience
+**Status**: PENDING ⏳  
+**Labels**: `enhancement`, `ui`, `frontend`  
+**Priority**: LOW - User experience improvements  
+**Impact**: High - Significantly improves user satisfaction  
+**Effort**: High - Requires substantial frontend development  
+**Assignee**: TBD
+
+**Description:**
+Significantly improve the web interface with modern UX patterns and advanced search capabilities.
+
+**Acceptance Criteria:**
+- [ ] Advanced search filters and faceting system
+- [ ] Search result highlighting and contextual snippets
+- [ ] Responsive design optimized for mobile devices
+- [ ] Search history and saved searches functionality
+- [ ] User preferences and customization options
+- [ ] Dark mode and comprehensive accessibility features
+- [ ] Real-time search suggestions and autocomplete
+- [ ] Export and sharing capabilities for search results
+
+**Business Value:** Improves user adoption and engagement
+
+---
+
+##### 4. Caching & Performance Optimization
+**Status**: PENDING ⏳  
+**Labels**: `enhancement`, `performance`, `caching`  
+**Priority**: LOW - Performance enhancements  
+**Impact**: Medium - Improves response times and reduces costs  
+**Effort**: Medium - Requires caching infrastructure setup  
+**Assignee**: TBD
+
+**Description:**
+Implement comprehensive caching and performance optimization strategies.
+
+**Acceptance Criteria:**
+- [ ] Redis-based result caching with intelligent invalidation
+- [ ] Embedding cache for frequently accessed vectors
+- [ ] Database query optimization and advanced indexing
+- [ ] Connection pooling and resource management
+- [ ] CDN support for static assets and API responses
+- [ ] Performance monitoring and automated alerting
+- [ ] Load testing and capacity planning tools
+
+**Business Value:** Reduces operational costs and improves user experience
+
+---
+
+##### 5. Third-party Integrations & Connectors
+**Status**: PENDING ⏳  
+**Labels**: `enhancement`, `integrations`, `connectors`  
+**Priority**: LOW - Ecosystem expansion  
+**Impact**: High - Expands market reach and use cases  
+**Effort**: High - Requires multiple integration implementations  
+**Assignee**: TBD
+
+**Description:**
+Expand ecosystem integration with popular platforms and services.
+
+**Acceptance Criteria:**
+- [ ] Slack and Discord bot integration with search commands
+- [ ] Notion and Confluence connector implementations
+- [ ] Google Drive and SharePoint document sync
+- [ ] Zapier and Make.com workflow integrations
+- [ ] Webhook support for real-time updates and notifications
+- [ ] SSO and enterprise authentication (SAML, OIDC)
+- [ ] API rate limiting and usage analytics
+- [ ] Plugin architecture for custom integrations
+
+**Business Value:** Enables enterprise adoption and workflow integration
 
 ---
 
@@ -157,118 +203,128 @@ kind:refactor        | #0EA5E9 | Internal improvement
 ### Milestone: **MVP Hardening** (Tier 1)
 
 #### [Pipelines] Robust crawler with caching & robots support ✅ **COMPLETED**
-**Labels:** `pipelines`, `core`, `kind:enhancement`
+**Labels:** `pipelines`, `core`, `kind:enhancement`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Build a resilient HTML fetcher with polite crawling and incremental updates.
 
-**Scope**
-- Respect `robots.txt`; support per-host rate limiting/backoff
-- Sitemap discovery; `lastmod` hints
-- ETag/`Last-Modified` conditional requests; local content cache
-- Canonical URL de-duplication
-- Boilerplate removal (readability rules); selector allow/deny lists
-- PDF -> Markdown fallback via `pdftotext`/`pdfminer`
-
-**Acceptance Criteria**
-- [x] `python pipelines/html_ingest.py sources/example.yaml` crawls target site end-to-end
-- [x] 304s skip writes; 200s update cache and emit new version hash
-- [x] Robots disallow paths are skipped and logged with reason
-- [x] Crawl throughput and error metrics exported (see observability)
-
-**Definition of Done**
-- [x] Unit tests for cache/update logic
-- [x] Docs added under `docs/pipelines/crawler.md`
+**Completed Features:**
+- ✅ Respect `robots.txt`; support per-host rate limiting/backoff
+- ✅ Sitemap discovery; `lastmod` hints
+- ✅ ETag/`Last-Modified` conditional requests; local content cache
+- ✅ Canonical URL de-duplication
+- ✅ Boilerplate removal (readability rules); selector allow/deny lists
+- ✅ PDF -> Markdown fallback via `pdftotext`/`pdfminer`
+- ✅ `python pipelines/html_ingest.py sources/example.yaml` crawls target site end-to-end
+- ✅ 304s skip writes; 200s update cache and emit new version hash
+- ✅ Robots disallow paths are skipped and logged with reason
+- ✅ Crawl throughput and error metrics exported (see observability)
+- ✅ Unit tests for cache/update logic
+- ✅ Docs added under `docs/pipelines/crawler.md`
 
 **Implementation Status:** Complete - Enhanced crawler implemented in `pipelines/crawler.py` with robots.txt support, error handling, retry mechanisms, and policy compliance
 
 ---
 
 #### [Pipelines] Source file schema v1 & validator ✅ **COMPLETED**
-**Labels:** `pipelines`, `core`, `kind:enhancement`
+**Labels:** `pipelines`, `core`, `kind:enhancement`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Define a stable YAML schema for sources and provide a validator.
 
-**Acceptance Criteria**
-- [x] Schema covers: `name`, `base_urls[]`, `sitemaps[]`, `include[]`, `exclude[]`, `rate_limit`, `depth`, `priority`, `auth`, `license_hint`
-- [x] CLI: `python pipelines/validate_source.py sources/*.yaml`
-- [x] Fails with line/column and helpful message on invalid fields
+**Completed Features:**
+- ✅ Schema covers: `name`, `base_urls[]`, `sitemaps[]`, `include[]`, `exclude[]`, `rate_limit`, `depth`, `priority`, `auth`, `license_hint`
+- ✅ CLI: `python pipelines/validate_source.py sources/*.yaml`
+- ✅ Fails with line/column and helpful message on invalid fields
 
 **Implementation Status:** Complete - Source schema implemented in `indexer/source_schema.py` with comprehensive validation
 
 ---
 
 #### [Indexer] Heading-aware chunker + metadata ✅ **COMPLETED**
-**Labels:** `indexer`, `core`, `priority:now`, `kind:enhancement`
+**Labels:** `indexer`, `core`, `priority:now`, `kind:enhancement`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Split Markdown into retrieval-friendly chunks while preserving section context.
 
-**Acceptance Criteria**
-- [x] Configurable token budget & overlap; respects headings and code fences
-- [x] Emits: `chunk_id`, `doc_id`, `h_path` (H1→Hn), `url`, `retrieved_at`, `hash`, `token_len`, `lang`
-- [x] Deterministic hashing; idempotent re-chunking
+**Completed Features:**
+- ✅ Configurable token budget & overlap; respects headings and code fences
+- ✅ Emits: `chunk_id`, `doc_id`, `h_path` (H1→Hn), `url`, `retrieved_at`, `hash`, `token_len`, `lang`
+- ✅ Deterministic hashing; idempotent re-chunking
 
 **Implementation Status:** Complete - Full implementation in `indexer/chunker.py` with heading-aware splitting and metadata
 
 ---
 
 #### [Indexer] Hybrid search (FTS5 + embeddings) with RRF ✅ **COMPLETED**
-**Labels:** `indexer`, `performance`, `kind:enhancement`
+**Labels:** `indexer`, `performance`, `kind:enhancement`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Blend lexical (BM25) and vector search; optional cross-encoder rerank.
 
-**Acceptance Criteria**
-- [x] pgvector column + index; cosine distance
-- [x] Reciprocal Rank Fusion to combine FTS and vector top-k
-- [x] Feature flag for reranker; configurable model name
+**Completed Features:**
+- ✅ pgvector column + index; cosine distance
+- ✅ Reciprocal Rank Fusion to combine FTS and vector top-k
+- ✅ Feature flag for reranker; configurable model name
 
 **Implementation Status:** Complete - Full hybrid search implementation with RRF scoring in `indexer/embeddings.py`
 
 ---
 
 #### [Server] API v1 polish + streaming responses ✅ **COMPLETED**
-**Labels:** `server`, `core`, `kind:enhancement`
+**Labels:** `server`, `core`, `kind:enhancement`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Harden the FastAPI surface and add endpoints for ingestion & jobs.
 
-**Acceptance Criteria**
-- [x] Endpoints implemented per `openapi.yaml`
-- [x] API keys + CORS + structured error model
-- [x] Server-Sent Events (SSE) for streaming `/search`
-- [x] OpenAPI served at `/openapi.json` and docs at `/docs`
+**Completed Features:**
+- ✅ Endpoints implemented per `openapi.yaml`
+- ✅ API keys + CORS + structured error model
+- ✅ Server-Sent Events (SSE) for streaming `/search`
+- ✅ OpenAPI served at `/openapi.json` and docs at `/docs`
 
 **Implementation Status:** Complete - Full API implementation with authentication, CORS, and streaming responses
 
 ---
 
 #### [Observability] OpenTelemetry + Prometheus ✅ **COMPLETED**
-**Labels:** `observability`, `ops`
+**Labels:** `observability`, `ops`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Trace ingest→index→query; export standard metrics.
 
-**Acceptance Criteria**
-- [x] Traces for each request; span attributes for source, bytes, durations
-- [x] `/metrics` exposes counters/histograms; Kubernetes ready
-- [x] Dashboards stub in `hosting/grafana/`
+**Completed Features:**
+- ✅ Traces for each request; span attributes for source, bytes, durations
+- ✅ `/metrics` exposes counters/histograms; Kubernetes ready
+- ✅ Dashboards stub in `hosting/grafana/`
 
 **Implementation Status:** Complete - Full observability stack implemented with OpenTelemetry tracing and Prometheus metrics
 
 ---
 
 #### [Eval] Gold set + metrics runner ✅ **COMPLETED**
-**Labels:** `eval`, `indexer`, `server`
+**Labels:** `eval`, `indexer`, `server`  
+**Priority:** Medium  
+**Status:** Production Ready  
 
 **Goal**
 Create a minimal evaluation harness to track search quality.
 
-**Acceptance Criteria**
-- [x] `df eval run` computes `nDCG@k`, `MRR` on a small gold set per source
-- [x] Markdown report in `docs/reports/` with trend chart
+**Completed Features:**
+- ✅ `df eval run` computes `nDCG@k`, `MRR` on a small gold set per source
+- ✅ Markdown report in `docs/reports/` with trend chart
 
 **Implementation Status:** Complete - Evaluation harness implemented with quality metrics and reporting
 
@@ -277,41 +333,47 @@ Create a minimal evaluation harness to track search quality.
 ### Milestone: **Team Grade** (Tier 2)
 
 #### [Server] Jobs & scheduling (periodic crawls) ✅ **COMPLETED**
-**Labels:** `server`, `ops`, `kind:enhancement`
+**Labels:** `server`, `ops`, `kind:enhancement`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Introduce job records and periodic crawl triggers; webhooks on change.
 
-**Acceptance Criteria**
-- [x] `POST /ingest` enqueues; `GET /jobs/{id}` returns status/logs
-- [x] Simple APScheduler; emit webhook on new/changed docs
+**Completed Features:**
+- ✅ `POST /ingest` enqueues; `GET /jobs/{id}` returns status/logs
+- ✅ Simple APScheduler; emit webhook on new/changed docs
 
 **Implementation Status:** Complete - Full job queue implementation with Redis and Celery in `server/jobs.py` and `server/job_handlers.py`
 
 ---
 
 #### [Policy] License/robots/noai guardrails ✅ **COMPLETED**
-**Labels:** `policy`, `pipelines`, `security`
+**Labels:** `policy`, `pipelines`, `security`  
+**Priority:** High  
+**Status:** Production Ready  
 
 **Goal**
 Block non-compliant sources; annotate chunks with policy metadata.
 
-**Acceptance Criteria**
-- [x] SPDX text matching; robots/noai respected; per-source allowlist
-- [x] Policy violations surfaced in `/ingest` logs and `/doc` metadata
+**Completed Features:**
+- ✅ SPDX text matching; robots/noai respected; per-source allowlist
+- ✅ Policy violations surfaced in `/ingest` logs and `/doc` metadata
 
 **Implementation Status:** Complete - Full policy implementation with robots.txt parsing and content filtering in `pipelines/policy.py` and `config/policy_loader.py`
 
 ---
 
 #### [MCP] Minimal Model Context Protocol server ✅ **COMPLETED**
-**Labels:** `mcp`, `server`
+**Labels:** `mcp`, `server`  
+**Priority:** Medium  
+**Status:** Production Ready  
 
 **Goal**
 Expose `search`, `fetch_doc`, `list_sources`, `capture_url` over MCP.
 
-**Acceptance Criteria**
-- [x] Stdio/socket server; JSON-RPC; client example included
+**Completed Features:**
+- ✅ Stdio/socket server; JSON-RPC; client example included
 
 **Implementation Status:** Complete - Full MCP server implementation in `server/mcp_server.py` with all required endpoints
 
@@ -320,13 +382,15 @@ Expose `search`, `fetch_doc`, `list_sources`, `capture_url` over MCP.
 ### Milestone: **Platform Grade** (Tier 3)
 
 #### [Indexer] Learning-to-Rank (click feedback) ✅ **COMPLETED**
-**Labels:** `indexer`, `performance`, `kind:enhancement`
+**Labels:** `indexer`, `performance`, `kind:enhancement`  
+**Priority:** Medium  
+**Status:** Production Ready  
 
 **Goal**
 Optional LTR stage trained on clicks; export/fit pipeline.
 
-**Acceptance Criteria**
-- [x] Click log schema; offline trainer; online scorer behind flag
+**Completed Features:**
+- ✅ Click log schema; offline trainer; online scorer behind flag
 
 **Implementation Status:** Complete - Full LTR implementation in `indexer/learning_to_rank.py` with click logging, feature extraction, and model reranking. API endpoints added to `server/rag_api.py` for feedback collection.
 
@@ -758,6 +822,35 @@ new_issue "[Indexer] Heading-aware chunker + metadata" \
 ```
 
 ---
+
+## 📊 **PROJECT SUMMARY & NEXT STEPS**
+
+### **Current Status**
+- **✅ Core Infrastructure:** 100% Complete - All high-priority items delivered
+- **⏳ Quality Enhancements:** 0% Complete - 2 medium-priority items pending
+- **⏳ User Experience:** 0% Complete - 3 low-priority items pending
+- **📈 Overall Progress:** ~70% of planned features completed
+
+### **Immediate Priorities (Next 30 Days)**
+1. **Gold Set + Metrics Runner Enhancement** - Critical for quality measurement
+2. **Source Schema Validation Enhancement** - Improves data reliability
+
+### **Medium-term Goals (Next 90 Days)**
+3. **Enhanced Web UI & Search Experience** - High user impact
+4. **Caching & Performance Optimization** - Operational efficiency
+
+### **Long-term Vision (Next 180 Days)**
+5. **Third-party Integrations & Connectors** - Market expansion
+
+### **Key Success Metrics**
+- **Search Quality:** nDCG@10 > 0.8, MRR > 0.7
+- **Performance:** <200ms average response time, 99.9% uptime
+- **User Adoption:** 50+ active users, 1000+ daily searches
+- **Data Quality:** <1% validation errors, 100% policy compliance
+
+---
+
+*This document serves as the single source of truth for DocFoundry's development roadmap and should be updated regularly to reflect current progress and priorities.*
 
 ### Notes
 - Paste issues directly into GitHub, or use `gh` scripts above.
