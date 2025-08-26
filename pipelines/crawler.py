@@ -6,6 +6,7 @@ Provides crawling functionality with policy compliance checks.
 import asyncio
 import logging
 import time
+import random
 from typing import List, Dict, Set, Optional, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 from dataclasses import dataclass
@@ -31,6 +32,8 @@ class CrawlResult:
     policy_violations: List[PolicyViolation] = None
     crawl_time: Optional[datetime] = None
     response_time: Optional[float] = None
+    retry_count: int = 0
+    final_url: Optional[str] = None  # After redirects
     
     def __post_init__(self):
         if self.policy_violations is None:
@@ -45,6 +48,8 @@ class CrawlStats:
     successful: int = 0
     failed: int = 0
     policy_blocked: int = 0
+    retried: int = 0
+    redirected: int = 0
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     
@@ -68,19 +73,30 @@ class WebCrawler:
     def __init__(self, 
                  max_concurrent: int = 10,
                  request_timeout: int = 30,
-                 user_agent: str = None):
+                 user_agent: str = None,
+                 max_retries: int = 3,
+                 retry_delay: float = 1.0,
+                 max_retry_delay: float = 60.0):
         """Initialize crawler.
         
         Args:
             max_concurrent: Maximum concurrent requests
             request_timeout: Request timeout in seconds
             user_agent: User agent string (defaults to policy config)
+            max_retries: Maximum number of retry attempts
+            retry_delay: Base delay between retries (seconds)
+            max_retry_delay: Maximum delay between retries (seconds)
         """
         self.max_concurrent = max_concurrent
         self.request_timeout = request_timeout
         self.user_agent = user_agent or policy_checker.user_agent
         self.session: Optional[aiohttp.ClientSession] = None
         self.semaphore = asyncio.Semaphore(max_concurrent)
+        
+        # Retry configuration
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.max_retry_delay = max_retry_delay
         
         # Rate limiting
         self.last_request_time: Dict[str, float] = {}
@@ -103,6 +119,12 @@ class WebCrawler:
         if self.session:
             await self.session.close()
     
+    async def close(self):
+        """Close the crawler session."""
+        if self.session:
+            await self.session.close()
+            self.session = None
+    
     def _get_domain(self, url: str) -> str:
         """Extract domain from URL."""
         return urlparse(url).netloc
@@ -120,81 +142,149 @@ class WebCrawler:
         
         self.last_request_time[domain] = time.time()
     
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """Calculate exponential backoff delay with jitter."""
+        base_delay = self.retry_delay * (2 ** attempt)
+        jitter = random.uniform(0.1, 0.3) * base_delay
+        delay = min(base_delay + jitter, self.max_retry_delay)
+        return delay
+    
+    def _is_retryable_error(self, exception: Exception, status_code: int = None) -> bool:
+        """Determine if an error is retryable."""
+        # Retryable HTTP status codes
+        retryable_status_codes = {408, 429, 500, 502, 503, 504}
+        
+        if status_code and status_code in retryable_status_codes:
+            return True
+        
+        # Retryable exceptions
+        if isinstance(exception, (asyncio.TimeoutError, aiohttp.ServerTimeoutError)):
+            return True
+        
+        if isinstance(exception, aiohttp.ClientError):
+            # Retry on connection errors, but not on client errors like 404
+            return isinstance(exception, (aiohttp.ClientConnectionError, 
+                                        aiohttp.ClientConnectorError,
+                                        aiohttp.ServerDisconnectedError))
+        
+        return False
+    
     async def _fetch_url(self, url: str, source_name: str, rate_limit: float = 0.5) -> CrawlResult:
-        """Fetch a single URL with policy checks."""
+        """Fetch a single URL with policy checks and retry logic."""
         start_time = time.time()
         
         try:
             # Check policy compliance first
-            policy_result = await asyncio.get_event_loop().run_in_executor(
-                None, check_url_policy, url, source_name
-            )
+            policy_result = await check_url_policy(url, source_name=source_name)
             
-            if not policy_result['can_crawl']:
-                logger.info(f"Policy blocked URL {url}: {policy_result.get('reason', 'Unknown')}")
+            if not policy_result or not policy_result.get('overall_compliant', False):
+                reason = policy_result.get('reason', 'Unknown') if policy_result else 'Policy check failed'
+                logger.info(f"Policy blocked URL {url}: {reason}")
                 return CrawlResult(
                     url=url,
                     status_code=403,
-                    error=f"Policy violation: {policy_result.get('reason', 'Unknown')}",
-                    policy_violations=policy_result.get('violations', []),
+                    error=f"Policy violation: {reason}",
+                    policy_violations=policy_result.get('violations', []) if policy_result else [],
                     response_time=time.time() - start_time
                 )
             
-            # Respect rate limiting
-            await self._respect_rate_limit(url, rate_limit)
+            # Initialize session if not already done
+            if not self.session:
+                await self.__aenter__()
             
-            async with self.semaphore:
-                logger.debug(f"Fetching {url}")
+            # Retry loop
+            last_exception = None
+            for attempt in range(self.max_retries + 1):
+                try:
+                    # Respect rate limiting
+                    await self._respect_rate_limit(url, rate_limit)
+                    
+                    async with self.semaphore:
+                        logger.debug(f"Fetching {url} (attempt {attempt + 1}/{self.max_retries + 1})")
+                        
+                        async with self.session.get(url, allow_redirects=True) as response:
+                            content_type = response.headers.get('content-type', '')
+                            
+                            # Check if we should retry based on status code
+                            if self._is_retryable_error(None, response.status) and attempt < self.max_retries:
+                                logger.warning(f"Retryable status {response.status} for {url}, attempt {attempt + 1}/{self.max_retries + 1}")
+                                delay = self._calculate_retry_delay(attempt)
+                                await asyncio.sleep(delay)
+                                continue
+                            
+                            # Only process text content
+                            if not content_type.startswith('text/'):
+                                return CrawlResult(
+                                    url=url,
+                                    status_code=response.status,
+                                    error=f"Non-text content type: {content_type}",
+                                    content_type=content_type,
+                                    response_time=time.time() - start_time,
+                                    retry_count=attempt,
+                                    final_url=str(response.url)
+                                )
+                            
+                            content = await response.text()
+                            
+                            # Check content policy
+                            content_policy = policy_checker.check_content_policy(content, url, source_name=source_name)
+                            
+                            violations = content_policy.get('violations', [])
+                            if violations:
+                                logger.info(f"Content policy violations for {url}: {len(violations)} violations")
+                            
+                            return CrawlResult(
+                                url=url,
+                                status_code=response.status,
+                                content=content,
+                                content_type=content_type,
+                                policy_violations=violations,
+                                response_time=time.time() - start_time,
+                                retry_count=attempt,
+                                final_url=str(response.url)
+                            )
                 
-                async with self.session.get(url) as response:
-                    content_type = response.headers.get('content-type', '')
-                    
-                    # Only process text content
-                    if not content_type.startswith('text/'):
-                        return CrawlResult(
-                            url=url,
-                            status_code=response.status,
-                            error=f"Non-text content type: {content_type}",
-                            content_type=content_type,
-                            response_time=time.time() - start_time
-                        )
-                    
-                    content = await response.text()
-                    
-                    # Check content policy
-                    content_policy = await asyncio.get_event_loop().run_in_executor(
-                        None, policy_checker.check_content_policy, content, source_name
-                    )
-                    
-                    violations = content_policy.get('violations', [])
-                    if violations:
-                        logger.info(f"Content policy violations for {url}: {len(violations)} violations")
-                    
-                    return CrawlResult(
-                        url=url,
-                        status_code=response.status,
-                        content=content,
-                        content_type=content_type,
-                        policy_violations=violations,
-                        response_time=time.time() - start_time
-                    )
+                except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as e:
+                    last_exception = e
+                    if attempt < self.max_retries and self._is_retryable_error(e):
+                        delay = self._calculate_retry_delay(attempt)
+                        logger.warning(f"Timeout fetching {url}, retrying in {delay:.2f}s (attempt {attempt + 1}/{self.max_retries + 1})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.warning(f"Timeout fetching {url} after {attempt + 1} attempts")
+                        break
+                        
+                except aiohttp.ClientError as e:
+                    last_exception = e
+                    if attempt < self.max_retries and self._is_retryable_error(e):
+                        delay = self._calculate_retry_delay(attempt)
+                        logger.warning(f"Client error fetching {url}: {e}, retrying in {delay:.2f}s (attempt {attempt + 1}/{self.max_retries + 1})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.warning(f"Client error fetching {url} after {attempt + 1} attempts: {e}")
+                        break
+                        
+                except Exception as e:
+                    last_exception = e
+                    logger.error(f"Unexpected error fetching {url}: {e}")
+                    break
+            
+            # If we get here, all retries failed
+            error_msg = str(last_exception) if last_exception else "Unknown error"
+            status_code = 408 if isinstance(last_exception, (asyncio.TimeoutError, aiohttp.ServerTimeoutError)) else 0
+            
+            return CrawlResult(
+                url=url,
+                status_code=status_code,
+                error=error_msg,
+                response_time=time.time() - start_time,
+                retry_count=self.max_retries
+            )
         
-        except asyncio.TimeoutError:
-            return CrawlResult(
-                url=url,
-                status_code=408,
-                error="Request timeout",
-                response_time=time.time() - start_time
-            )
-        except aiohttp.ClientError as e:
-            return CrawlResult(
-                url=url,
-                status_code=0,
-                error=f"Client error: {str(e)}",
-                response_time=time.time() - start_time
-            )
         except Exception as e:
-            logger.error(f"Unexpected error fetching {url}: {e}")
+            logger.error(f"Unexpected error in _fetch_url for {url}: {e}")
             return CrawlResult(
                 url=url,
                 status_code=0,
@@ -314,6 +404,12 @@ class WebCrawler:
                 results.append(result)
                 
                 # Update stats
+                if result.retry_count > 0:
+                    stats.retried += 1
+                
+                if result.final_url and result.final_url != url:
+                    stats.redirected += 1
+                
                 if result.status_code == 403 and "Policy violation" in (result.error or ""):
                     stats.policy_blocked += 1
                 elif result.status_code == 200:
@@ -351,7 +447,8 @@ class WebCrawler:
         stats.finish()
         
         logger.info(f"Crawl completed: {stats.successful} successful, {stats.failed} failed, "
-                   f"{stats.policy_blocked} policy blocked out of {stats.total_urls} total URLs")
+                   f"{stats.policy_blocked} policy blocked, {stats.retried} retried, "
+                   f"{stats.redirected} redirected out of {stats.total_urls} total URLs")
         
         return results, stats
 

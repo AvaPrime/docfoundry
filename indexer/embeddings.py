@@ -9,22 +9,46 @@ import pickle
 import logging
 from pathlib import Path
 
+# Import learning-to-rank module
+try:
+    from .learning_to_rank import LearningToRankReranker
+except ImportError:
+    # Fallback for when running as standalone
+    try:
+        from learning_to_rank import LearningToRankReranker
+    except ImportError:
+        LearningToRankReranker = None
+        logging.warning("Learning-to-rank module not available")
+
 logger = logging.getLogger(__name__)
 
 class EmbeddingManager:
     """Manages document embeddings for semantic search"""
     
-    def __init__(self, db_path: str, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, db_path: str, model_name: str = "all-MiniLM-L6-v2", enable_ltr: bool = True):
         """
         Initialize embedding manager
         
         Args:
             db_path: Path to SQLite database
             model_name: Sentence transformer model name
+            enable_ltr: Enable learning-to-rank reranking
         """
         self.db_path = db_path
         self.model_name = model_name
         self.model = None
+        self.enable_ltr = enable_ltr and LearningToRankReranker is not None
+        
+        # Initialize learning-to-rank reranker if available
+        self.ltr_reranker = None
+        if self.enable_ltr:
+            try:
+                self.ltr_reranker = LearningToRankReranker(db_path)
+                logger.info("Learning-to-rank reranker initialized")
+            except Exception as e:
+                logger.warning(f"Could not initialize LTR reranker: {e}")
+                self.enable_ltr = False
+        
         self._load_model()
     
     def _load_model(self):
@@ -284,8 +308,17 @@ class EmbeddingManager:
                 
                 rrf_scores.append((chunk_data, rrf_score))
             
-            # Sort by RRF score (descending) and limit results
+            # Sort by RRF score (descending)
             rrf_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Apply learning-to-rank reranking if enabled
+            if self.enable_ltr and self.ltr_reranker:
+                try:
+                    rrf_scores = self.ltr_reranker.rerank_results(query, rrf_scores)
+                    logger.debug(f"Applied LTR reranking for query: {query}")
+                except Exception as e:
+                    logger.warning(f"LTR reranking failed, using original RRF scores: {e}")
+            
             return rrf_scores[:limit]
             
         except Exception as e:

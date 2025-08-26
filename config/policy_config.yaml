@@ -82,13 +82,13 @@ source_overrides:
 url_patterns:
   # URLs matching these patterns are always allowed (regex)
   whitelist:
-    - "^https://github\.com/.*\.md$"  # GitHub markdown files
-    - "^https://docs\..*/.*$"  # Documentation sites
+    - "^https://github\\.com/.*\\.md$"  # GitHub markdown files
+    - "^https://docs\\..*/.*$"  # Documentation sites
   
   # URLs matching these patterns are always blocked (regex)
   blacklist:
-    - ".*\.pdf$"  # PDF files (example)
-    - "^https://.*\.onion/.*$"  # Tor hidden services
+    - ".*\\\\.pdf$"  # PDF files (example)
+    - "^https://.*\\\\.onion/.*$"  # Tor hidden services
 
 # Monitoring and metrics
 monitoring:

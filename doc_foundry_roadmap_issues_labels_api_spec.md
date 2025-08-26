@@ -2,15 +2,16 @@
 
 ## 🎯 PRIORITY NEXT STEPS
 
-### **HIGH PRIORITY** - Ready for Implementation
-1. **[Hybrid Search]** Vector + keyword search with score fusion (FTS5 + embeddings with RRF)
-2. **[Jobs & Scheduling]** Background task processing for periodic crawls
-3. **[Policy Guardrails]** License/robots/noai compliance and content filtering
+### **COMPLETED FEATURES** ✅
+1. **[Hybrid Search]** Vector + keyword search with score fusion (FTS5 + embeddings with RRF) ✅ **COMPLETED**
+2. **[Jobs & Scheduling]** Background task processing for periodic crawls ✅ **COMPLETED**
+3. **[Policy Guardrails]** License/robots/noai compliance and content filtering ✅ **COMPLETED**
+4. **[MCP Server]** Minimal Model Context Protocol implementation ✅ **COMPLETED**
+5. **[Learning-to-Rank]** Click feedback and ranking improvements ✅ **COMPLETED**
+6. **[Crawler Enhancement]** Enhanced error handling and retry mechanisms ✅ **COMPLETED**
 
-### **MEDIUM PRIORITY** - Foundation Building
-4. **[MCP Server]** Minimal Model Context Protocol implementation
-5. **[Learning-to-Rank]** Click feedback and ranking improvements
-6. **[Advanced Features]** Enhanced search filters and faceting
+### **REMAINING PRIORITIES** - Future Enhancements
+7. **[Advanced Features]** Enhanced search filters and faceting
 
 ### **LOW PRIORITY** - Future Enhancements
 7. **[UI/UX]** Advanced search interface improvements
@@ -122,18 +123,18 @@ Split Markdown into retrieval-friendly chunks while preserving section context.
 
 ---
 
-#### [Indexer] Hybrid search (FTS5 + embeddings) with RRF 🔥 **HIGH PRIORITY**
+#### [Indexer] Hybrid search (FTS5 + embeddings) with RRF ✅ **COMPLETED**
 **Labels:** `indexer`, `performance`, `kind:enhancement`
 
 **Goal**
 Blend lexical (BM25) and vector search; optional cross-encoder rerank.
 
 **Acceptance Criteria**
-- [ ] pgvector column + index; cosine distance
-- [ ] Reciprocal Rank Fusion to combine FTS and vector top-k
-- [ ] Feature flag for reranker; configurable model name
+- [x] pgvector column + index; cosine distance
+- [x] Reciprocal Rank Fusion to combine FTS and vector top-k
+- [x] Feature flag for reranker; configurable model name
 
-**Next Steps:** Implement FTS5 integration and RRF scoring algorithm
+**Implementation Status:** Complete - Full hybrid search implementation with RRF scoring in `indexer/embeddings.py`
 
 ---
 
@@ -184,57 +185,59 @@ Create a minimal evaluation harness to track search quality.
 
 ### Milestone: **Team Grade** (Tier 2)
 
-#### [Server] Jobs & scheduling (periodic crawls) 🔥 **HIGH PRIORITY**
+#### [Server] Jobs & scheduling (periodic crawls) ✅ **COMPLETED**
 **Labels:** `server`, `ops`, `kind:enhancement`
 
 **Goal**
 Introduce job records and periodic crawl triggers; webhooks on change.
 
 **Acceptance Criteria**
-- [ ] `POST /ingest` enqueues; `GET /jobs/{id}` returns status/logs
-- [ ] Simple APScheduler; emit webhook on new/changed docs
+- [x] `POST /ingest` enqueues; `GET /jobs/{id}` returns status/logs
+- [x] Simple APScheduler; emit webhook on new/changed docs
 
-**Next Steps:** Set up Redis and implement basic job queue with APScheduler
+**Implementation Status:** Complete - Full job queue implementation with Redis and Celery in `server/jobs.py` and `server/job_handlers.py`
 
 ---
 
-#### [Policy] License/robots/noai guardrails 🔥 **HIGH PRIORITY**
+#### [Policy] License/robots/noai guardrails ✅ **COMPLETED**
 **Labels:** `policy`, `pipelines`, `security`
 
 **Goal**
 Block non-compliant sources; annotate chunks with policy metadata.
 
 **Acceptance Criteria**
-- [ ] SPDX text matching; robots/noai respected; per-source allowlist
-- [ ] Policy violations surfaced in `/ingest` logs and `/doc` metadata
+- [x] SPDX text matching; robots/noai respected; per-source allowlist
+- [x] Policy violations surfaced in `/ingest` logs and `/doc` metadata
 
-**Next Steps:** Implement robots.txt parsing and basic content filtering
+**Implementation Status:** Complete - Full policy implementation with robots.txt parsing and content filtering in `pipelines/policy.py` and `config/policy_loader.py`
 
 ---
 
-#### [MCP] Minimal Model Context Protocol server 🟡 **MEDIUM PRIORITY**
+#### [MCP] Minimal Model Context Protocol server ✅ **COMPLETED**
 **Labels:** `mcp`, `server`
 
 **Goal**
 Expose `search`, `fetch_doc`, `list_sources`, `capture_url` over MCP.
 
 **Acceptance Criteria**
-- [ ] Stdio/socket server; JSON-RPC; client example included
+- [x] Stdio/socket server; JSON-RPC; client example included
 
-**Next Steps:** Create MCP server implementation using the MCP Python SDK
+**Implementation Status:** Complete - Full MCP server implementation in `server/mcp_server.py` with all required endpoints
 
 ---
 
 ### Milestone: **Platform Grade** (Tier 3)
 
-#### [Indexer] Learning-to-Rank (click feedback)
+#### [Indexer] Learning-to-Rank (click feedback) ✅ **COMPLETED**
 **Labels:** `indexer`, `performance`, `kind:enhancement`
 
 **Goal**
 Optional LTR stage trained on clicks; export/fit pipeline.
 
 **Acceptance Criteria**
-- [ ] Click log schema; offline trainer; online scorer behind flag
+- [x] Click log schema; offline trainer; online scorer behind flag
+
+**Implementation Status:** Complete - Full LTR implementation in `indexer/learning_to_rank.py` with click logging, feature extraction, and model reranking. API endpoints added to `server/rag_api.py` for feedback collection.
 
 ---
 

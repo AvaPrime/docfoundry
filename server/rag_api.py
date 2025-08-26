@@ -2,11 +2,18 @@ from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from typing import List, Optional
-import sqlite3, pathlib, json, datetime, re, logging
+import sqlite3, pathlib, json, datetime, re, logging, uuid
 import sys
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "indexer"))
 from embeddings import EmbeddingManager
 from .jobs import job_manager, register_default_handlers, JobStatus
+
+# Import learning-to-rank for click feedback
+try:
+    from learning_to_rank import LearningToRankReranker
+except ImportError:
+    LearningToRankReranker = None
+    logging.warning("Learning-to-rank module not available for click feedback")
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "docfoundry.db"
@@ -20,6 +27,14 @@ try:
     embedding_manager = EmbeddingManager(str(DB_PATH))
 except Exception as e:
     logging.warning(f"Failed to initialize embedding manager: {e}")
+
+# Initialize learning-to-rank reranker for click feedback
+ltr_reranker = None
+if LearningToRankReranker:
+    try:
+        ltr_reranker = LearningToRankReranker(str(DB_PATH))
+    except Exception as e:
+        logging.warning(f"Failed to initialize LTR reranker: {e}")
 
 def db():
     conn = sqlite3.connect(DB_PATH)
@@ -40,6 +55,18 @@ class HybridSearchRequest(BaseModel):
     k: int = 5
     rrf_k: int = 60
     min_similarity: float = 0.3
+
+class ClickFeedbackRequest(BaseModel):
+    query: str
+    chunk_id: str
+    position: int
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    dwell_time: Optional[float] = None
+
+class SearchSessionRequest(BaseModel):
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 @app.get("/health")
 def health():
@@ -179,6 +206,93 @@ async def ingest(req: IngestRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to enqueue job: {str(e)}")
+
+@app.post("/feedback/click")
+def log_click_feedback(req: ClickFeedbackRequest):
+    """Log click feedback for learning-to-rank improvement"""
+    if not ltr_reranker:
+        raise HTTPException(status_code=503, detail="Learning-to-rank system not available")
+    
+    try:
+        # Generate session ID if not provided
+        session_id = req.session_id or str(uuid.uuid4())
+        
+        # Log the click event
+        ltr_reranker.log_click_feedback(
+            query=req.query,
+            clicked_chunk_id=req.chunk_id,
+            position=req.position,
+            session_id=session_id,
+            user_id=req.user_id,
+            dwell_time=req.dwell_time
+        )
+        
+        return {
+            "success": True,
+            "message": "Click feedback logged successfully",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logging.error(f"Failed to log click feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to log click feedback: {str(e)}")
+
+@app.post("/feedback/session")
+def create_search_session(req: SearchSessionRequest):
+    """Create or retrieve a search session for tracking user interactions"""
+    try:
+        # Generate session ID if not provided
+        session_id = req.session_id or str(uuid.uuid4())
+        
+        return {
+            "session_id": session_id,
+            "user_id": req.user_id,
+            "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+        }
+    except Exception as e:
+        logging.error(f"Failed to create search session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create search session: {str(e)}")
+
+@app.get("/feedback/stats")
+def get_feedback_stats(query: Optional[str] = None, days: int = 30):
+    """Get click feedback statistics for analysis"""
+    if not ltr_reranker:
+        raise HTTPException(status_code=503, detail="Learning-to-rank system not available")
+    
+    try:
+        stats = ltr_reranker.click_logger.get_click_stats(query=query, days=days)
+        model_stats = ltr_reranker.get_model_stats()
+        
+        return {
+            "click_stats": stats,
+            "model_info": {
+                "weights": model_stats.get("weights", []),
+                "last_updated": model_stats.get("last_updated")
+            },
+            "query_filter": query,
+            "days_range": days
+        }
+    except Exception as e:
+        logging.error(f"Failed to get feedback stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get feedback stats: {str(e)}")
+
+@app.post("/feedback/update-model")
+def update_ltr_model(learning_rate: float = 0.01):
+    """Manually trigger learning-to-rank model update"""
+    if not ltr_reranker:
+        raise HTTPException(status_code=503, detail="Learning-to-rank system not available")
+    
+    try:
+        ltr_reranker.update_model(learning_rate=learning_rate)
+        
+        return {
+            "success": True,
+            "message": "Learning-to-rank model updated successfully",
+            "learning_rate": learning_rate,
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z"
+        }
+    except Exception as e:
+        logging.error(f"Failed to update LTR model: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update LTR model: {str(e)}")
 
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
