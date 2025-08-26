@@ -19,9 +19,8 @@ from .datasets import (
 )
 from .benchmarks import (
     SearchBenchmark,
-    HybridSearchBenchmark,
-    SemanticSearchBenchmark,
-    FullTextSearchBenchmark
+    BenchmarkResult,
+    BenchmarkConfig
 )
 
 __all__ = [
@@ -35,7 +34,6 @@ __all__ = [
     'create_synthetic_dataset',
     'load_evaluation_dataset',
     'SearchBenchmark',
-    'HybridSearchBenchmark',
-    'SemanticSearchBenchmark',
-    'FullTextSearchBenchmark'
+    'BenchmarkResult',
+    'BenchmarkConfig'
 ]
