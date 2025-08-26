@@ -6,9 +6,10 @@ Provides functionality to chunk documents into smaller pieces for better retriev
 import logging
 import re
 import hashlib
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Iterable
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +42,204 @@ class DocumentChunker:
     def __init__(self, 
                  chunk_size: int = 1000,
                  chunk_overlap: int = 200,
-                 min_chunk_size: int = 100):
+                 min_chunk_size: int = 100,
+                 max_tokens: int = 512,
+                 overlap_tokens: int = 64):
         """Initialize chunker.
         
         Args:
             chunk_size: Target size for each chunk in characters
             chunk_overlap: Number of characters to overlap between chunks
             min_chunk_size: Minimum size for a chunk to be kept
+            max_tokens: Maximum tokens per chunk (for advanced chunking)
+            overlap_tokens: Token overlap for advanced chunking
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.min_chunk_size = min_chunk_size
+        self.max_tokens = max_tokens
+        self.overlap_tokens = overlap_tokens
+        # Simple token estimation: ~4 chars per token for English
+        self.chars_per_token = 4
     
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count for text (rough approximation)."""
         # Simple approximation: ~4 characters per token on average
-        return len(text) // 4
+        return len(text) // self.chars_per_token
+    
+    def _extract_headings(self, md: str) -> List[Tuple[int, str, int]]:
+        """Extract headings with their levels, text, and positions.
+        Returns: [(level, text, start_pos), ...]
+        """
+        headings = []
+        lines = md.split('\n')
+        pos = 0
+        
+        for line in lines:
+            # ATX headings (# ## ###)
+            match = re.match(r'^(#{1,6})\s+(.+)$', line.strip())
+            if match:
+                level = len(match.group(1))
+                text = match.group(2).strip()
+                headings.append((level, text, pos))
+            pos += len(line) + 1  # +1 for newline
+        
+        return headings
+    
+    def _build_heading_hierarchy(self, headings: List[Tuple[int, str, int]]) -> Dict[int, List[str]]:
+        """Build heading path for each position in the document.
+        Returns: {position: [h1, h2, h3, ...], ...}
+        """
+        hierarchy = defaultdict(list)
+        current_path = []
+        
+        for i, (level, text, pos) in enumerate(headings):
+            # Adjust current path based on heading level
+            if level == 1:
+                current_path = [text]
+            elif level <= len(current_path):
+                current_path = current_path[:level-1] + [text]
+            else:
+                # Fill missing levels with empty strings
+                while len(current_path) < level - 1:
+                    current_path.append("")
+                current_path.append(text)
+            
+            # Set hierarchy for this position and all positions until next heading
+            end_pos = headings[i+1][2] if i+1 < len(headings) else float('inf')
+            hierarchy[pos] = current_path.copy()
+            
+        return hierarchy
+    
+    def _get_heading_path_for_position(self, pos: int, hierarchy: Dict[int, List[str]]) -> List[str]:
+        """Get the heading path for a given position in the document."""
+        best_pos = 0
+        best_path = []
+        
+        for h_pos, h_path in hierarchy.items():
+            if h_pos <= pos and h_pos > best_pos:
+                best_pos = h_pos
+                best_path = h_path
+        
+        return best_path
+    
+    def _generate_stable_chunk_id(self, doc_id: str, h_path: List[str], offset: int) -> str:
+        """Generate deterministic chunk ID based on document, heading path, and offset."""
+        path_str = "|".join(h_path) if h_path else "root"
+        content = f"{doc_id}#{path_str}#{offset}"
+        return hashlib.md5(content.encode()).hexdigest()[:12]
+    
+    def _generate_content_hash(self, text: str) -> str:
+        """Generate hash of chunk content for change detection."""
+        return hashlib.sha256(text.encode()).hexdigest()
+    
+    def _split_by_sentences(self, text: str, max_chars: int, overlap_chars: int) -> List[str]:
+        """Split text by sentences with overlap, respecting sentence boundaries."""
+        # Simple sentence splitting (can be enhanced with proper NLP)
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            # If adding this sentence would exceed max_chars, start new chunk
+            if current_chunk and len(current_chunk) + len(sentence) > max_chars:
+                chunks.append(current_chunk.strip())
+                
+                # Start new chunk with overlap from previous chunk
+                if overlap_chars > 0 and len(current_chunk) > overlap_chars:
+                    overlap_text = current_chunk[-overlap_chars:]
+                    # Find sentence boundary for clean overlap
+                    overlap_sentences = re.split(r'(?<=[.!?])\s+', overlap_text)
+                    if len(overlap_sentences) > 1:
+                        current_chunk = ' '.join(overlap_sentences[1:]) + ' ' + sentence
+                    else:
+                        current_chunk = sentence
+                else:
+                    current_chunk = sentence
+            else:
+                current_chunk += (" " if current_chunk else "") + sentence
+        
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        return chunks
+    
+    def _create_markdown_chunks(self, md: str, doc_id: str, url: str = None) -> List[Dict[str, Any]]:
+        """Create heading-aware chunks from markdown content with stable IDs."""
+        if not md.strip():
+            return []
+        
+        # Extract headings and build hierarchy
+        headings = self._extract_headings(md)
+        hierarchy = self._build_heading_hierarchy(headings)
+        
+        # Convert token limits to character limits (rough estimation)
+        max_chars = self.max_tokens * self.chars_per_token
+        overlap_chars = self.overlap_tokens * self.chars_per_token
+        
+        # Split by sections (between headings) first
+        sections = []
+        if headings:
+            for i, (level, text, pos) in enumerate(headings):
+                end_pos = headings[i+1][2] if i+1 < len(headings) else len(md)
+                section_text = md[pos:end_pos].strip()
+                if section_text:
+                    sections.append((pos, section_text))
+        else:
+            # No headings, treat entire document as one section
+            sections = [(0, md)]
+        
+        chunks = []
+        chunk_offset = 0
+        
+        for section_pos, section_text in sections:
+            h_path = self._get_heading_path_for_position(section_pos, hierarchy)
+            
+            # If section is small enough, keep as single chunk
+            if len(section_text) <= max_chars:
+                chunk_id = self._generate_stable_chunk_id(doc_id, h_path, chunk_offset)
+                content_hash = self._generate_content_hash(section_text)
+                token_len = self._estimate_tokens(section_text)
+                
+                chunks.append({
+                    'content': section_text,
+                    'metadata': {
+                        'chunk_id': chunk_id,
+                        'h_path': h_path,
+                        'heading': h_path[-1] if h_path else None,
+                        'heading_level': len(h_path) if h_path else None,
+                        'content_hash': content_hash,
+                        'token_count': token_len,
+                        'section_offset': chunk_offset
+                    }
+                })
+                chunk_offset += 1
+            else:
+                # Split large section by sentences with overlap
+                sub_chunks = self._split_by_sentences(section_text, max_chars, overlap_chars)
+                
+                for sub_chunk in sub_chunks:
+                    if sub_chunk.strip():
+                        chunk_id = self._generate_stable_chunk_id(doc_id, h_path, chunk_offset)
+                        content_hash = self._generate_content_hash(sub_chunk)
+                        token_len = self._estimate_tokens(sub_chunk)
+                        
+                        chunks.append({
+                            'content': sub_chunk,
+                            'metadata': {
+                                'chunk_id': chunk_id,
+                                'h_path': h_path,
+                                'heading': h_path[-1] if h_path else None,
+                                'heading_level': len(h_path) if h_path else None,
+                                'content_hash': content_hash,
+                                'token_count': token_len,
+                                'section_offset': chunk_offset
+                            }
+                        })
+                        chunk_offset += 1
+        
+        return chunks
     
     def _clean_html(self, content: str) -> str:
         """Clean HTML content and extract text."""
@@ -79,7 +262,7 @@ class DocumentChunker:
             logger.warning(f"Failed to parse HTML content: {e}")
             return content
     
-    def _extract_headings(self, content: str) -> List[Tuple[str, int]]:
+    def _extract_html_headings(self, content: str) -> List[Tuple[str, int]]:
         """Extract headings from HTML content.
         
         Returns:
@@ -238,7 +421,7 @@ class DocumentChunker:
         
         Args:
             document: Document dictionary with 'content', 'url', etc.
-            use_heading_aware: Whether to use heading-aware chunking for HTML
+            use_heading_aware: Whether to use heading-aware chunking
         
         Returns:
             List of DocumentChunk objects
@@ -250,14 +433,20 @@ class DocumentChunker:
         # Generate document ID
         doc_id = hashlib.sha256(document['url'].encode()).hexdigest()[:16]
         
-        # Determine if content is HTML
+        # Determine content type
         is_html = ('<html' in content.lower() or 
                   '<body' in content.lower() or 
                   bool(re.search(r'<[^>]+>', content)))
         
+        # Check if content looks like markdown (has markdown headings)
+        is_markdown = bool(re.search(r'^#{1,6}\s+.+$', content, re.MULTILINE))
+        
         chunks_data = []
         
-        if is_html and use_heading_aware:
+        if use_heading_aware and is_markdown:
+            # Use advanced markdown chunking with stable IDs and hierarchy
+            chunks_data = self._create_markdown_chunks(content, doc_id, document['url'])
+        elif is_html and use_heading_aware:
             # Use heading-aware chunking for HTML
             chunks_data = self._create_heading_aware_chunks(content)
         else:
@@ -278,16 +467,32 @@ class DocumentChunker:
             if len(chunk_content) < self.min_chunk_size:
                 continue
             
-            # Generate chunk ID
-            chunk_hash = hashlib.sha256(chunk_content.encode()).hexdigest()
-            chunk_id = f"{doc_id}_{i:04d}"
+            chunk_metadata = chunk_data.get('metadata', {})
+            
+            # Use stable chunk ID if available, otherwise generate one
+            if 'chunk_id' in chunk_metadata:
+                chunk_id = chunk_metadata['chunk_id']
+            else:
+                chunk_id = f"{doc_id}_{i:04d}"
+            
+            # Use content hash if available, otherwise generate one
+            if 'content_hash' in chunk_metadata:
+                chunk_hash = chunk_metadata['content_hash']
+            else:
+                chunk_hash = hashlib.sha256(chunk_content.encode()).hexdigest()
+            
+            # Use token count if available, otherwise estimate
+            if 'token_count' in chunk_metadata:
+                token_count = chunk_metadata['token_count']
+            else:
+                token_count = self._estimate_tokens(chunk_content)
             
             # Combine document metadata with chunk metadata
             metadata = {
                 'url': document['url'],
                 'title': document.get('title', ''),
                 'source_name': document.get('source_name', ''),
-                **chunk_data.get('metadata', {})
+                **chunk_metadata
             }
             
             chunk = DocumentChunk(
@@ -296,7 +501,7 @@ class DocumentChunker:
                 chunk_index=i,
                 content=chunk_content,
                 content_hash=chunk_hash,
-                token_count=self._estimate_tokens(chunk_content),
+                token_count=token_count,
                 metadata=metadata
             )
             
