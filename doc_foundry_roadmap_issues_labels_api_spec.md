@@ -11,12 +11,101 @@
 6. **[Crawler Enhancement]** Enhanced error handling and retry mechanisms ✅ **COMPLETED**
 
 ### **REMAINING PRIORITIES** - Future Enhancements
-7. **[Advanced Features]** Enhanced search filters and faceting
 
-### **LOW PRIORITY** - Future Enhancements
-7. **[UI/UX]** Advanced search interface improvements
-8. **[Performance]** Caching and optimization
-9. **[Integration]** Third-party connectors and extensions
+#### **HIGH PRIORITY**
+
+##### PostgreSQL Migration with pgvector
+**Status**: PENDING ⏳
+**Priority**: HIGH - Critical for production scalability
+- [ ] Set up PostgreSQL database with pgvector extension
+- [ ] Migrate schema from SQLite to PostgreSQL
+- [ ] Update embedding storage to use pgvector
+- [ ] Implement connection pooling and optimization
+- [ ] Add database migration scripts
+- [ ] Update all queries to use PostgreSQL syntax
+
+##### OpenTelemetry Integration & Metrics
+**Status**: PENDING ⏳
+**Priority**: HIGH - Essential for production monitoring
+- [ ] Complete OpenTelemetry instrumentation setup
+- [ ] Add comprehensive metrics collection
+- [ ] Implement distributed tracing
+- [ ] Set up Prometheus metrics export
+- [ ] Add performance monitoring dashboards
+- [ ] Configure alerting and monitoring
+
+##### API v1 Polish + Streaming Responses
+**Status**: PENDING ⏳
+**Priority**: HIGH - Improves user experience significantly
+- [ ] Implement streaming search responses
+- [ ] Add proper error handling and status codes
+- [ ] Implement request validation and sanitization
+- [ ] Add rate limiting and authentication
+- [ ] Complete OpenAPI documentation
+- [ ] Add response caching headers
+
+#### **MEDIUM PRIORITY**
+
+##### Heading-aware Chunker + Metadata
+**Status**: PENDING ⏳
+**Priority**: MEDIUM - Enhances content organization
+- [ ] Parse heading hierarchy from Markdown
+- [ ] Generate stable chunk IDs based on content hash
+- [ ] Store heading paths as metadata
+- [ ] Update chunker to preserve document structure
+- [ ] Add support for nested heading extraction
+- [ ] Implement content-aware chunking strategies
+
+##### Source Schema Validation Enhancement
+**Status**: PENDING ⏳
+**Priority**: MEDIUM - Improves data quality assurance
+- [ ] Extend validation rules for complex source types
+- [ ] Add schema versioning and migration support
+- [ ] Implement validation reporting and logging
+- [ ] Add support for custom validation rules
+- [ ] Create validation test suite
+
+##### Gold Set + Metrics Runner
+**Status**: PENDING ⏳
+**Priority**: MEDIUM - Essential for quality measurement
+- [ ] Create evaluation framework infrastructure
+- [ ] Implement gold standard dataset management
+- [ ] Add automated metrics calculation
+- [ ] Create performance benchmarking suite
+- [ ] Add A/B testing capabilities
+- [ ] Implement continuous evaluation pipeline
+
+#### **LOW PRIORITY** - Future Enhancements
+
+##### Enhanced Web UI & Search Experience
+**Status**: PENDING ⏳
+**Priority**: LOW - User experience improvements
+- [ ] Implement advanced search filters and faceting
+- [ ] Add search result highlighting and snippets
+- [ ] Create responsive design for mobile devices
+- [ ] Add search history and saved searches
+- [ ] Implement user preferences and customization
+- [ ] Add dark mode and accessibility features
+
+##### Caching & Performance Optimization
+**Status**: PENDING ⏳
+**Priority**: LOW - Performance enhancements
+- [ ] Implement Redis-based result caching
+- [ ] Add embedding cache for frequently accessed vectors
+- [ ] Optimize database queries and indexing
+- [ ] Implement connection pooling
+- [ ] Add CDN support for static assets
+- [ ] Create performance monitoring and alerting
+
+##### Third-party Integrations & Connectors
+**Status**: PENDING ⏳
+**Priority**: LOW - Ecosystem expansion
+- [ ] Add Slack/Discord bot integration
+- [ ] Implement Notion and Confluence connectors
+- [ ] Add Google Drive and SharePoint support
+- [ ] Create Zapier/Make.com integrations
+- [ ] Add webhook support for real-time updates
+- [ ] Implement SSO and enterprise authentication
 
 ---
 
@@ -67,8 +156,8 @@ kind:refactor        | #0EA5E9 | Internal improvement
 
 ### Milestone: **MVP Hardening** (Tier 1)
 
-#### [Pipelines] Robust crawler with caching & robots support
-**Labels:** `pipelines`, `core`, `priority:now`, `kind:enhancement`
+#### [Pipelines] Robust crawler with caching & robots support ✅ **COMPLETED**
+**Labels:** `pipelines`, `core`, `kind:enhancement`
 
 **Goal**
 Build a resilient HTML fetcher with polite crawling and incremental updates.
@@ -82,14 +171,16 @@ Build a resilient HTML fetcher with polite crawling and incremental updates.
 - PDF -> Markdown fallback via `pdftotext`/`pdfminer`
 
 **Acceptance Criteria**
-- [ ] `python pipelines/html_ingest.py sources/example.yaml` crawls target site end-to-end
-- [ ] 304s skip writes; 200s update cache and emit new version hash
-- [ ] Robots disallow paths are skipped and logged with reason
-- [ ] Crawl throughput and error metrics exported (see observability)
+- [x] `python pipelines/html_ingest.py sources/example.yaml` crawls target site end-to-end
+- [x] 304s skip writes; 200s update cache and emit new version hash
+- [x] Robots disallow paths are skipped and logged with reason
+- [x] Crawl throughput and error metrics exported (see observability)
 
 **Definition of Done**
-- [ ] Unit tests for cache/update logic
-- [ ] Docs added under `docs/pipelines/crawler.md`
+- [x] Unit tests for cache/update logic
+- [x] Docs added under `docs/pipelines/crawler.md`
+
+**Implementation Status:** Complete - Enhanced crawler implemented in `pipelines/crawler.py` with robots.txt support, error handling, retry mechanisms, and policy compliance
 
 ---
 
