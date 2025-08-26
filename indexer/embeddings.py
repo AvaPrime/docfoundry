@@ -181,90 +181,112 @@ class EmbeddingManager:
         finally:
             conn.close()
     
-    def hybrid_search(self, query: str, limit: int = 10, semantic_weight: float = 0.7) -> List[Tuple[dict, float]]:
-        """Combine FTS and semantic search for better results"""
+    def hybrid_search(self, query: str, limit: int = 10, k: int = 60, min_similarity: float = 0.3) -> List[Tuple[dict, float]]:
+        """Combine FTS and semantic search using Reciprocal Rank Fusion (RRF)
+        
+        Args:
+            query: Search query
+            limit: Number of results to return
+            k: RRF parameter (typically 60)
+            min_similarity: Minimum similarity threshold for semantic results
+        """
         if not query.strip():
             return []
         
-        # Get semantic search results
-        semantic_results = self.semantic_search(query, limit * 2)  # Get more for mixing
-        semantic_scores = {result[0]['id']: result[1] for result in semantic_results}
+        # Get semantic search results with rankings
+        semantic_results = self.semantic_search(query, limit * 3, min_similarity)
+        semantic_rankings = {result[0]['id']: rank + 1 for rank, result in enumerate(semantic_results)}
         
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         
         try:
-            # Get FTS search results
+            # Get FTS search results with rankings
             fts_results = []
+            fts_rankings = {}
             try:
                 fts_chunks = conn.execute("""
                     SELECT c.id, c.text, c.heading, c.anchor,
                            d.path, d.title, d.source_url,
-                           rank
+                           bm25(chunks_fts) as bm25_score
                     FROM chunks_fts
                     JOIN chunks c ON c.id = chunks_fts.rowid
                     JOIN documents d ON d.id = c.document_id
                     WHERE chunks_fts MATCH ?
+                    ORDER BY bm25_score
                     LIMIT ?
-                """, (query, limit * 2)).fetchall()
+                """, (query, limit * 3)).fetchall()
                 
-                # Normalize FTS scores (rank is negative, lower is better)
-                if fts_chunks:
-                    max_rank = abs(min(chunk['rank'] for chunk in fts_chunks))
-                    for chunk in fts_chunks:
-                        normalized_score = abs(chunk['rank']) / max_rank if max_rank > 0 else 0
-                        chunk_data = {
-                            'id': chunk['id'],
-                            'text': chunk['text'],
-                            'heading': chunk['heading'],
-                            'anchor': chunk['anchor'],
-                            'path': chunk['path'],
-                            'title': chunk['title'],
-                            'source_url': chunk['source_url']
-                        }
-                        fts_results.append((chunk_data, normalized_score))
+                for rank, chunk in enumerate(fts_chunks):
+                    chunk_data = {
+                        'id': chunk['id'],
+                        'text': chunk['text'],
+                        'heading': chunk['heading'],
+                        'anchor': chunk['anchor'],
+                        'path': chunk['path'],
+                        'title': chunk['title'],
+                        'source_url': chunk['source_url']
+                    }
+                    fts_results.append((chunk_data, chunk['bm25_score']))
+                    fts_rankings[chunk['id']] = rank + 1
+                    
             except Exception as e:
-                logger.warning(f"FTS search failed: {e}")
+                logger.warning(f"FTS search failed, falling back to LIKE search: {e}")
+                # Fallback to LIKE search if FTS fails
+                like_chunks = conn.execute("""
+                    SELECT c.id, c.text, c.heading, c.anchor,
+                           d.path, d.title, d.source_url
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE c.text LIKE ? OR c.heading LIKE ?
+                    LIMIT ?
+                """, (f"%{query}%", f"%{query}%", limit * 2)).fetchall()
+                
+                for rank, chunk in enumerate(like_chunks):
+                    chunk_data = {
+                        'id': chunk['id'],
+                        'text': chunk['text'],
+                        'heading': chunk['heading'],
+                        'anchor': chunk['anchor'],
+                        'path': chunk['path'],
+                        'title': chunk['title'],
+                        'source_url': chunk['source_url']
+                    }
+                    fts_results.append((chunk_data, 1.0))  # Uniform score for LIKE results
+                    fts_rankings[chunk['id']] = rank + 1
             
-            # Combine results with weighted scoring
-            combined_scores = {}
-            all_chunk_ids = set()
+            # Collect all unique chunks
+            all_chunks = {}
             
             # Add semantic results
-            for result, score in semantic_results:
+            for result, similarity in semantic_results:
                 chunk_id = result['id']
-                combined_scores[chunk_id] = {
-                    'data': result,
-                    'semantic_score': score,
-                    'fts_score': 0.0
-                }
-                all_chunk_ids.add(chunk_id)
+                all_chunks[chunk_id] = result
             
             # Add FTS results
             for result, score in fts_results:
                 chunk_id = result['id']
-                if chunk_id in combined_scores:
-                    combined_scores[chunk_id]['fts_score'] = score
-                else:
-                    combined_scores[chunk_id] = {
-                        'data': result,
-                        'semantic_score': 0.0,
-                        'fts_score': score
-                    }
-                    all_chunk_ids.add(chunk_id)
+                if chunk_id not in all_chunks:
+                    all_chunks[chunk_id] = result
             
-            # Calculate final weighted scores
-            final_results = []
-            for chunk_id, scores in combined_scores.items():
-                final_score = (
-                    semantic_weight * scores['semantic_score'] +
-                    (1 - semantic_weight) * scores['fts_score']
-                )
-                final_results.append((scores['data'], final_score))
+            # Calculate RRF scores
+            rrf_scores = []
+            for chunk_id, chunk_data in all_chunks.items():
+                rrf_score = 0.0
+                
+                # Add semantic ranking contribution
+                if chunk_id in semantic_rankings:
+                    rrf_score += 1.0 / (k + semantic_rankings[chunk_id])
+                
+                # Add FTS ranking contribution
+                if chunk_id in fts_rankings:
+                    rrf_score += 1.0 / (k + fts_rankings[chunk_id])
+                
+                rrf_scores.append((chunk_data, rrf_score))
             
-            # Sort by final score and limit
-            final_results.sort(key=lambda x: x[1], reverse=True)
-            return final_results[:limit]
+            # Sort by RRF score (descending) and limit results
+            rrf_scores.sort(key=lambda x: x[1], reverse=True)
+            return rrf_scores[:limit]
             
         except Exception as e:
             logger.error(f"Error in hybrid search: {e}")
@@ -302,9 +324,9 @@ def main():
             results = manager.hybrid_search(args.search, args.limit)
             
             if results:
-                print(f"\nFound {len(results)} results:\n")
+                print(f"\nFound {len(results)} results (RRF Hybrid Search):\n")
                 for i, (chunk, score) in enumerate(results, 1):
-                    print(f"{i}. {chunk['title']} (Score: {score:.3f})")
+                    print(f"{i}. {chunk['title']} (RRF Score: {score:.4f})")
                     if chunk['heading']:
                         print(f"   Section: {chunk['heading']}")
                     print(f"   Path: {chunk['path']}")

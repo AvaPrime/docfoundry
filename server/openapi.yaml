@@ -77,7 +77,7 @@ paths:
                         text: { type: string }
   /search/hybrid:
     post:
-      summary: Combined full-text and semantic search with weighted scoring
+      summary: Combined full-text and semantic search using Reciprocal Rank Fusion (RRF)
       requestBody:
         required: true
         content:
@@ -85,13 +85,14 @@ paths:
             schema:
               type: object
               properties:
-                query: { type: string }
-                limit: { type: integer, default: 10 }
-                fts_weight: { type: number, default: 0.7 }
-                semantic_weight: { type: number, default: 0.3 }
+                q: { type: string, description: "Search query" }
+                k: { type: integer, default: 5, description: "Number of results to return" }
+                rrf_k: { type: integer, default: 60, description: "RRF parameter for rank fusion" }
+                min_similarity: { type: number, default: 0.3, description: "Minimum similarity threshold for semantic results" }
+              required: ["q"]
       responses:
         '200':
-          description: Hybrid search results
+          description: Hybrid search results using RRF scoring
           content:
             application/json:
               schema:
@@ -102,10 +103,30 @@ paths:
                     items:
                       type: object
                       properties:
-                        score: { type: number }
-                        section: { type: string }
                         path: { type: string }
-                        text: { type: string }
+                        title: { type: string }
+                        source_url: { type: string }
+                        heading: { type: string }
+                        anchor: { type: string }
+                        snippet: { type: string }
+                        rrf_score: { type: number, description: "Reciprocal Rank Fusion score" }
+                  search_type: { type: string, enum: ["hybrid_rrf"] }
+        '503':
+          description: Service unavailable - embedding manager not initialized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
   /doc/{doc_id}:
     get:
       summary: Fetch a normalized document with metadata
@@ -128,7 +149,7 @@ paths:
                   markdown: { type: string }
   /ingest:
     post:
-      summary: Enqueue ingestion for a source or URLs
+      summary: Enqueue ingestion job for a source or URLs
       requestBody:
         required: true
         content:
@@ -136,36 +157,131 @@ paths:
             schema:
               type: object
               properties:
-                source: { type: string, description: Source name from YAML }
-                urls: { type: array, items: { type: string } }
-      responses:
-        '202':
-          description: Job accepted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  job_id: { type: string }
-  /jobs/{id}:
-    get:
-      summary: Get job status/logs
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
+                source_name:
+                  type: string
+                  description: Name of the source to crawl
+                urls:
+                  type: array
+                  items:
+                    type: string
+                  description: List of URLs to crawl
+                reindex:
+                  type: boolean
+                  default: false
+                  description: Whether to reindex after crawling
       responses:
         '200':
-          description: Job details
+          description: Job enqueued successfully
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  id: { type: string }
-                  status: { type: string, enum: [queued, running, done, failed] }
-                  logs: { type: array, items: { type: string } }
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          description: Bad request - missing required parameters
+        '500':
+          description: Internal server error
+
+  /jobs:
+    get:
+      summary: List jobs with optional status filter
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        status:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        started_at:
+                          type: string
+                          format: date-time
+                        completed_at:
+                          type: string
+                          format: date-time
+                        error:
+                          type: string
+                  total:
+                    type: integer
+
+  /jobs/{job_id}:
+    get:
+      summary: Get job status and logs
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status and logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, running, completed, failed, cancelled]
+                  type:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  started_at:
+                    type: string
+                    format: date-time
+                  completed_at:
+                    type: string
+                    format: date-time
+                  logs:
+                    type: array
+                    items:
+                      type: string
+                  error:
+                    type: string
+                  result:
+                    type: object
+        '404':
+          description: Job not found
+        '500':
+          description: Internal server error
   /sources:
     get:
       summary: List available sources
