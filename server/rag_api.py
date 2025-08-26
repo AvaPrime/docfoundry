@@ -1,12 +1,19 @@
-from fastapi import FastAPI, Body, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import FastAPI, Body, HTTPException, Depends
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional
-import sqlite3, pathlib, json, datetime, re, logging, uuid
+from typing import List, Optional, Union, AsyncGenerator
+import pathlib, json, datetime, re, logging, uuid, asyncio
 import sys
+import os
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "indexer"))
 from embeddings import EmbeddingManager
 from .jobs import job_manager, register_default_handlers, JobStatus
+
+# Import database configuration
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
+from config import get_db_adapter, initialize_database, DatabaseConfig
+from indexer.postgres_adapter import PostgresAdapter
+from indexer.sqlite_adapter import SQLiteAdapter
 
 # Import learning-to-rank for click feedback
 try:
@@ -15,31 +22,119 @@ except ImportError:
     LearningToRankReranker = None
     logging.warning("Learning-to-rank module not available for click feedback")
 
+# Import OpenTelemetry for observability
+try:
+    from observability.telemetry import (
+        init_telemetry, 
+        shutdown_telemetry, 
+        instrument_fastapi_app,
+        trace_function,
+        trace_span,
+        record_counter,
+        record_histogram,
+        record_gauge
+    )
+    TELEMETRY_AVAILABLE = True
+except ImportError:
+    TELEMETRY_AVAILABLE = False
+    logging.warning("OpenTelemetry not available - running without observability")
+
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "docfoundry.db"
 DOCS_DIR = BASE_DIR / "docs"
 
-app = FastAPI(title="DocFoundry RAG API", version="0.1.0")
+app = FastAPI(title="DocFoundry RAG API", version="0.2.0")
+
+# Initialize OpenTelemetry instrumentation
+if TELEMETRY_AVAILABLE:
+    # Initialize telemetry with environment configuration
+    init_telemetry(
+        service_name=os.getenv("OTEL_SERVICE_NAME", "docfoundry"),
+        service_version="0.2.0",
+        environment=os.getenv("ENVIRONMENT", "development"),
+        otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        enable_prometheus=True
+    )
+    # Instrument FastAPI app
+    instrument_fastapi_app(app)
+    logging.info("OpenTelemetry instrumentation enabled")
+
+# Global database adapter
+db_adapter: Optional[Union[PostgresAdapter, SQLiteAdapter]] = None
 
 # Initialize embedding manager for semantic search
 embedding_manager = None
-try:
-    embedding_manager = EmbeddingManager(str(DB_PATH))
-except Exception as e:
-    logging.warning(f"Failed to initialize embedding manager: {e}")
 
 # Initialize learning-to-rank reranker for click feedback
 ltr_reranker = None
-if LearningToRankReranker:
-    try:
-        ltr_reranker = LearningToRankReranker(str(DB_PATH))
-    except Exception as e:
-        logging.warning(f"Failed to initialize LTR reranker: {e}")
 
-def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database, components, and job manager on startup."""
+    global db_adapter, embedding_manager, ltr_reranker
+    
+    try:
+        # Initialize database
+        await initialize_database()
+        db_adapter = await get_db_adapter()
+        logging.info(f"Database initialized: {type(db_adapter).__name__}")
+        
+        # Initialize embedding manager
+        if isinstance(db_adapter, SQLiteAdapter):
+            embedding_manager = EmbeddingManager(str(DB_PATH))
+        else:
+            # For PostgreSQL, we'll need to adapt the embedding manager
+            embedding_manager = EmbeddingManager(db_adapter=db_adapter)
+        logging.info("Embedding manager initialized")
+        
+        # Initialize learning-to-rank reranker
+        if LearningToRankReranker:
+            if isinstance(db_adapter, SQLiteAdapter):
+                ltr_reranker = LearningToRankReranker(str(DB_PATH))
+            else:
+                ltr_reranker = LearningToRankReranker(db_adapter=db_adapter)
+            logging.info("LTR reranker initialized")
+        
+        # Initialize job manager
+        try:
+            register_default_handlers()
+            await job_manager.start()
+            logging.info("Job manager initialized successfully")
+        except Exception as e:
+            logging.warning(f"Failed to initialize job manager: {e}")
+            # Don't fail startup if Redis is not available
+            
+    except Exception as e:
+        logging.error(f"Failed to initialize application: {e}")
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown."""
+    global db_adapter
+    
+    # Shutdown job manager
+    try:
+        await job_manager.shutdown()
+        logging.info("Job manager shutdown completed")
+    except Exception as e:
+        logging.error(f"Error during job manager shutdown: {e}")
+    
+    # Close database connections
+    if db_adapter:
+        await db_adapter.close()
+        logging.info("Database connections closed")
+    
+    # Shutdown telemetry
+    if TELEMETRY_AVAILABLE:
+        shutdown_telemetry()
+        logging.info("OpenTelemetry shutdown completed")
+
+async def get_db():
+    """Dependency to get database adapter."""
+    if db_adapter is None:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    return db_adapter
 
 class SearchRequest(BaseModel):
     q: str
@@ -73,74 +168,167 @@ def health():
     return {"ok": True, "time": datetime.datetime.utcnow().isoformat()+"Z"}
 
 @app.post("/search")
-def search(req: SearchRequest):
-    conn = db()
+async def search(req: SearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
+    """Perform full-text search using the database adapter."""
     try:
-        rows = conn.execute("""
-            SELECT d.path, d.title, d.source_url, c.heading, c.anchor,
-                   snippet(chunks_fts, 0, '<b>', '</b>', '…', 8) AS snippet
-            FROM chunks_fts
-            JOIN chunks c ON c.id = chunks_fts.rowid
-            JOIN documents d ON d.id = c.document_id
-            WHERE chunks_fts MATCH ?
-            LIMIT ?
-        """, (req.q, req.k)).fetchall()
-    except Exception:
-        rows = conn.execute("""
-            SELECT d.path, d.title, d.source_url, c.heading, c.anchor, substr(c.text, 1, 240) as snippet
-            FROM chunks c
-            JOIN documents d ON d.id = c.document_id
-            WHERE c.text LIKE ?
-            LIMIT ?
-        """, (f"%{req.q}%", req.k)).fetchall()
-    results = [dict(r) for r in rows]
-    return {"results": results}
+        results = await db.search_fulltext(req.q, req.k)
+        return {"results": results}
+    except Exception as e:
+        logging.error(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
 
 @app.post("/search/semantic")
-def semantic_search(req: SemanticSearchRequest):
+async def semantic_search(req: SemanticSearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
     """Perform semantic search using embeddings"""
-    if not embedding_manager:
-        return JSONResponse({"error": "Semantic search not available - embedding manager not initialized"}, status_code=503)
+    if TELEMETRY_AVAILABLE:
+        record_counter("search_requests_total", {"type": "semantic"})
     
     try:
-        results = embedding_manager.semantic_search(req.q, req.k, req.min_similarity)
-        formatted_results = []
-        for chunk_data, similarity in results:
-            formatted_results.append({
-                "path": chunk_data["path"],
-                "title": chunk_data["title"],
-                "source_url": chunk_data["source_url"],
-                "heading": chunk_data["heading"],
-                "anchor": chunk_data["anchor"],
-                "snippet": chunk_data["text"][:240] + "..." if len(chunk_data["text"]) > 240 else chunk_data["text"],
-                "similarity": round(similarity, 3)
-            })
-        return {"results": formatted_results, "search_type": "semantic"}
+        if TELEMETRY_AVAILABLE:
+            with trace_span("semantic_search") as span:
+                span.set_attribute("query", req.q)
+                span.set_attribute("k", req.k)
+                span.set_attribute("min_similarity", req.min_similarity)
+                
+                results = await db.search_semantic(req.q, req.k, req.min_similarity)
+                
+                span.set_attribute("results_count", len(results))
+                record_histogram("search_results_count", len(results), {"type": "semantic"})
+                record_counter("search_requests_success", {"type": "semantic"})
+        else:
+            results = await db.search_semantic(req.q, req.k, req.min_similarity)
+            
+        return {"results": results, "search_type": "semantic"}
     except Exception as e:
-        return JSONResponse({"error": f"Semantic search failed: {str(e)}"}, status_code=500)
+        if TELEMETRY_AVAILABLE:
+            record_counter("search_requests_error", {"type": "semantic", "error": str(type(e).__name__)})
+        logging.error(f"Semantic search error: {e}")
+        raise HTTPException(status_code=500, detail="Semantic search failed")
 
 @app.post("/search/hybrid")
-def hybrid_search(req: HybridSearchRequest):
+async def hybrid_search(req: HybridSearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
     """Perform hybrid search combining FTS and semantic search using RRF"""
-    if not embedding_manager:
-        return JSONResponse({"error": "Hybrid search not available - embedding manager not initialized"}, status_code=503)
+    if TELEMETRY_AVAILABLE:
+        record_counter("search_requests_total", {"type": "hybrid"})
     
     try:
-        results = embedding_manager.hybrid_search(req.q, req.k, req.rrf_k, req.min_similarity)
-        formatted_results = []
-        for chunk_data, rrf_score in results:
-            formatted_results.append({
-                "path": chunk_data["path"],
-                "title": chunk_data["title"],
-                "source_url": chunk_data["source_url"],
-                "heading": chunk_data["heading"],
-                "anchor": chunk_data["anchor"],
-                "snippet": chunk_data["text"][:240] + "..." if len(chunk_data["text"]) > 240 else chunk_data["text"],
-                "rrf_score": round(rrf_score, 4)
-            })
-        return {"results": formatted_results, "search_type": "hybrid_rrf"}
+        if TELEMETRY_AVAILABLE:
+            with trace_span("hybrid_search") as span:
+                span.set_attribute("query", req.q)
+                span.set_attribute("k", req.k)
+                span.set_attribute("rrf_k", req.rrf_k)
+                span.set_attribute("min_similarity", req.min_similarity)
+                
+                results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                
+                span.set_attribute("results_count", len(results))
+                record_histogram("search_results_count", len(results), {"type": "hybrid"})
+                record_counter("search_requests_success", {"type": "hybrid"})
+        else:
+            results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+            
+        return {"results": results, "search_type": "hybrid_rrf"}
     except Exception as e:
-        return JSONResponse({"error": f"Hybrid search failed: {str(e)}"}, status_code=500)
+        if TELEMETRY_AVAILABLE:
+            record_counter("search_requests_error", {"type": "hybrid", "error": str(type(e).__name__)})
+        logging.error(f"Hybrid search error: {e}")
+        raise HTTPException(status_code=500, detail="Hybrid search failed")
+
+# Streaming search endpoints
+async def stream_search_results(results: List[dict], search_type: str) -> AsyncGenerator[str, None]:
+    """Stream search results as Server-Sent Events."""
+    # Send initial metadata
+    yield f"data: {json.dumps({'type': 'metadata', 'search_type': search_type, 'total_results': len(results)})}\n\n"
+    
+    # Stream results one by one
+    for i, result in enumerate(results):
+        result_data = {
+            'type': 'result',
+            'index': i,
+            'data': result
+        }
+        yield f"data: {json.dumps(result_data)}\n\n"
+        
+        # Add small delay to simulate progressive loading
+        await asyncio.sleep(0.01)
+    
+    # Send completion signal
+    yield f"data: {json.dumps({'type': 'complete', 'message': 'Search completed'})}\n\n"
+
+@app.post("/search/semantic/stream")
+async def semantic_search_stream(req: SemanticSearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
+    """Perform semantic search with streaming results."""
+    if TELEMETRY_AVAILABLE:
+        record_counter("search_requests_total", {"type": "semantic_stream"})
+    
+    try:
+        if TELEMETRY_AVAILABLE:
+            with trace_span("semantic_search_stream") as span:
+                span.set_attribute("query", req.q)
+                span.set_attribute("k", req.k)
+                span.set_attribute("min_similarity", req.min_similarity)
+                
+                results = await db.search_semantic(req.q, req.k, req.min_similarity)
+                
+                span.set_attribute("results_count", len(results))
+                record_histogram("search_results_count", len(results), {"type": "semantic_stream"})
+                record_counter("search_requests_success", {"type": "semantic_stream"})
+        else:
+            results = await db.search_semantic(req.q, req.k, req.min_similarity)
+        
+        return StreamingResponse(
+            stream_search_results(results, "semantic"),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*"
+            }
+        )
+    except Exception as e:
+        if TELEMETRY_AVAILABLE:
+            record_counter("search_requests_error", {"type": "semantic_stream", "error": str(type(e).__name__)})
+        logging.error(f"Semantic search stream error: {e}")
+        raise HTTPException(status_code=500, detail="Semantic search stream failed")
+
+@app.post("/search/hybrid/stream")
+async def hybrid_search_stream(req: HybridSearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
+    """Perform hybrid search with streaming results."""
+    if TELEMETRY_AVAILABLE:
+        record_counter("search_requests_total", {"type": "hybrid_stream"})
+    
+    try:
+        if TELEMETRY_AVAILABLE:
+            with trace_span("hybrid_search_stream") as span:
+                span.set_attribute("query", req.q)
+                span.set_attribute("k", req.k)
+                span.set_attribute("rrf_k", req.rrf_k)
+                span.set_attribute("min_similarity", req.min_similarity)
+                
+                results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                
+                span.set_attribute("results_count", len(results))
+                record_histogram("search_results_count", len(results), {"type": "hybrid_stream"})
+                record_counter("search_requests_success", {"type": "hybrid_stream"})
+        else:
+            results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+        
+        return StreamingResponse(
+            stream_search_results(results, "hybrid"),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*"
+            }
+        )
+    except Exception as e:
+        if TELEMETRY_AVAILABLE:
+            record_counter("search_requests_error", {"type": "hybrid_stream", "error": str(type(e).__name__)})
+        logging.error(f"Hybrid search stream error: {e}")
+        raise HTTPException(status_code=500, detail="Hybrid search stream failed")
 
 @app.get("/doc")
 def get_doc(path: str):
@@ -183,21 +371,50 @@ async def ingest(req: IngestRequest):
     if not req.source_name and not req.urls:
         raise HTTPException(status_code=400, detail="Either source_name or urls must be provided")
     
+    if TELEMETRY_AVAILABLE:
+        record_counter("ingest_jobs_total")
+    
     try:
-        # Prepare job parameters
-        job_params = {
-            "source_name": req.source_name,
-            "urls": req.urls or [],
-            "reindex": req.reindex
-        }
-        
-        # Enqueue crawl job
-        job_id = await job_manager.enqueue_job("crawl_source", job_params)
-        
-        # If reindex is requested, enqueue reindex job as well
-        if req.reindex:
-            reindex_params = {"source_filter": req.source_name}
-            await job_manager.enqueue_job("reindex", reindex_params)
+        if TELEMETRY_AVAILABLE:
+            with trace_span("ingest_job_enqueue") as span:
+                span.set_attribute("source_name", req.source_name or "unknown")
+                span.set_attribute("reindex", req.reindex)
+                if req.urls:
+                    span.set_attribute("url_count", len(req.urls))
+                    record_histogram("ingest_url_count", len(req.urls))
+                
+                # Prepare job parameters
+                job_params = {
+                    "source_name": req.source_name,
+                    "urls": req.urls or [],
+                    "reindex": req.reindex
+                }
+                
+                # Enqueue crawl job
+                job_id = await job_manager.enqueue_job("crawl_source", job_params)
+                span.set_attribute("job_id", job_id)
+                
+                # If reindex is requested, enqueue reindex job as well
+                if req.reindex:
+                    reindex_params = {"source_filter": req.source_name}
+                    await job_manager.enqueue_job("reindex", reindex_params)
+                
+                record_counter("ingest_jobs_enqueued")
+        else:
+            # Prepare job parameters
+            job_params = {
+                "source_name": req.source_name,
+                "urls": req.urls or [],
+                "reindex": req.reindex
+            }
+            
+            # Enqueue crawl job
+            job_id = await job_manager.enqueue_job("crawl_source", job_params)
+            
+            # If reindex is requested, enqueue reindex job as well
+            if req.reindex:
+                reindex_params = {"source_filter": req.source_name}
+                await job_manager.enqueue_job("reindex", reindex_params)
         
         return JobResponse(
             job_id=job_id,
@@ -205,27 +422,54 @@ async def ingest(req: IngestRequest):
             message="Ingestion job enqueued successfully"
         )
     except Exception as e:
+        if TELEMETRY_AVAILABLE:
+            record_counter("ingest_jobs_error", {"error": str(type(e).__name__)})
         raise HTTPException(status_code=500, detail=f"Failed to enqueue job: {str(e)}")
 
 @app.post("/feedback/click")
-def log_click_feedback(req: ClickFeedbackRequest):
+async def log_click_feedback(req: ClickFeedbackRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
     """Log click feedback for learning-to-rank improvement"""
-    if not ltr_reranker:
-        raise HTTPException(status_code=503, detail="Learning-to-rank system not available")
+    if TELEMETRY_AVAILABLE:
+        record_counter("feedback_clicks_total")
     
     try:
-        # Generate session ID if not provided
-        session_id = req.session_id or str(uuid.uuid4())
-        
-        # Log the click event
-        ltr_reranker.log_click_feedback(
-            query=req.query,
-            clicked_chunk_id=req.chunk_id,
-            position=req.position,
-            session_id=session_id,
-            user_id=req.user_id,
-            dwell_time=req.dwell_time
-        )
+        if TELEMETRY_AVAILABLE:
+            with trace_span("log_click_feedback") as span:
+                span.set_attribute("query", req.query)
+                span.set_attribute("chunk_id", req.chunk_id)
+                span.set_attribute("position", req.position)
+                if req.dwell_time:
+                    span.set_attribute("dwell_time", req.dwell_time)
+                    record_histogram("feedback_dwell_time", req.dwell_time)
+                
+                # Generate session ID if not provided
+                session_id = req.session_id or str(uuid.uuid4())
+                
+                # Log the click event using database adapter
+                await db.record_click_feedback(
+                    query=req.query,
+                    chunk_id=req.chunk_id,
+                    position=req.position,
+                    session_id=session_id,
+                    user_id=req.user_id,
+                    dwell_time=req.dwell_time
+                )
+                
+                span.set_attribute("session_id", session_id)
+                record_counter("feedback_clicks_success")
+        else:
+            # Generate session ID if not provided
+            session_id = req.session_id or str(uuid.uuid4())
+            
+            # Log the click event using database adapter
+            await db.record_click_feedback(
+                query=req.query,
+                chunk_id=req.chunk_id,
+                position=req.position,
+                session_id=session_id,
+                user_id=req.user_id,
+                dwell_time=req.dwell_time
+            )
         
         return {
             "success": True,
@@ -233,6 +477,8 @@ def log_click_feedback(req: ClickFeedbackRequest):
             "session_id": session_id
         }
     except Exception as e:
+        if TELEMETRY_AVAILABLE:
+            record_counter("feedback_clicks_error", {"error": str(type(e).__name__)})
         logging.error(f"Failed to log click feedback: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to log click feedback: {str(e)}")
 
@@ -253,21 +499,13 @@ def create_search_session(req: SearchSessionRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create search session: {str(e)}")
 
 @app.get("/feedback/stats")
-def get_feedback_stats(query: Optional[str] = None, days: int = 30):
+async def get_feedback_stats(query: Optional[str] = None, days: int = 30, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
     """Get click feedback statistics for analysis"""
-    if not ltr_reranker:
-        raise HTTPException(status_code=503, detail="Learning-to-rank system not available")
-    
     try:
-        stats = ltr_reranker.click_logger.get_click_stats(query=query, days=days)
-        model_stats = ltr_reranker.get_model_stats()
+        stats = await db.get_stats()
         
         return {
-            "click_stats": stats,
-            "model_info": {
-                "weights": model_stats.get("weights", []),
-                "last_updated": model_stats.get("last_updated")
-            },
+            "database_stats": stats,
             "query_filter": query,
             "days_range": days
         }
@@ -352,22 +590,4 @@ async def list_jobs(status: Optional[str] = None, limit: int = 100):
         raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
 
 # Application lifecycle events
-@app.on_event("startup")
-async def startup_event():
-    """Initialize job manager on startup"""
-    try:
-        await job_manager.initialize()
-        register_default_handlers()
-        logging.info("Job manager initialized successfully")
-    except Exception as e:
-        logging.error(f"Failed to initialize job manager: {e}")
-        # Don't fail startup if Redis is not available
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Shutdown job manager on app shutdown"""
-    try:
-        await job_manager.shutdown()
-        logging.info("Job manager shutdown completed")
-    except Exception as e:
-        logging.error(f"Error during job manager shutdown: {e}")
+# Job manager initialization is now handled in the main startup event above
