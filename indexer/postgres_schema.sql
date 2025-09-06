@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS search_sessions (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Search cache for performance optimization
+CREATE TABLE IF NOT EXISTS search_cache (
+  cache_key TEXT PRIMARY KEY,
+  results JSONB NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  accessed_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
@@ -137,6 +146,9 @@ CREATE INDEX IF NOT EXISTS idx_click_feedback_timestamp ON click_feedback(timest
 
 CREATE INDEX IF NOT EXISTS idx_search_sessions_user_id ON search_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_search_sessions_created_at ON search_sessions(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_search_cache_expires_at ON search_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_search_cache_accessed_at ON search_cache(accessed_at);
 
 -- Update triggers for updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()

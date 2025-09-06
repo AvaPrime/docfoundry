@@ -133,7 +133,7 @@ class SQLiteAdapter:
         # For SQLite, we'll do a simpler hybrid approach
         # First get FTS results
         fts_query = f"""
-        SELECT c.id, c.chunk_id, c.text, c.heading, c.anchor, c.url,
+        SELECT c.id, c.text, c.heading, c.anchor,
                d.path, d.title, d.source_url, c.embedding,
                chunks_fts.rank as fts_score
         FROM chunks_fts
@@ -162,7 +162,7 @@ class SQLiteAdapter:
                     similarity_score = float(np.dot(embedding, chunk_embedding) / 
                                            (np.linalg.norm(embedding) * np.linalg.norm(chunk_embedding)))
                 except Exception as e:
-                    logger.warning(f"Failed to calculate similarity for chunk {row['chunk_id']}: {e}")
+                    logger.warning(f"Failed to calculate similarity for chunk {row['id']}: {e}")
             
             result['similarity_score'] = similarity_score
             result['fts_score'] = row['fts_score']
@@ -183,7 +183,7 @@ class SQLiteAdapter:
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT c.id, c.chunk_id, c.text, c.heading, c.anchor, c.url,
+            SELECT c.id, c.id as chunk_id, c.text, c.heading, c.anchor, '' as url,
                    d.path, d.title, d.source_url, c.embedding
             FROM chunks c
             JOIN documents d ON c.document_id = d.id
@@ -221,7 +221,7 @@ class SQLiteAdapter:
             SELECT c.*, d.path, d.title, d.source_url
             FROM chunks c
             JOIN documents d ON c.document_id = d.id
-            WHERE c.chunk_id = ?
+            WHERE c.id = ?
             """,
             (chunk_id,)
         )

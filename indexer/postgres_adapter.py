@@ -25,9 +25,12 @@ class PostgresConfig(BaseModel):
     database: str = "docfoundry"
     user: str = "docfoundry"
     password: str = ""
-    min_connections: int = 5
-    max_connections: int = 20
-    command_timeout: int = 60
+    min_connections: int = 10
+    max_connections: int = 50
+    command_timeout: int = 30
+    query_timeout: int = 15
+    connection_max_age: int = 3600  # 1 hour
+    prepared_statement_cache_size: int = 100
 
 
 class PostgresAdapter:
@@ -48,18 +51,31 @@ class PostgresAdapter:
                 password=self.config.password,
                 min_size=self.config.min_connections,
                 max_size=self.config.max_connections,
-                command_timeout=self.config.command_timeout
+                command_timeout=self.config.command_timeout,
+                max_queries=50000,
+                max_inactive_connection_lifetime=self.config.connection_max_age,
+                setup=self._setup_connection
             )
-            logger.info("PostgreSQL connection pool initialized")
+            logger.info(f"PostgreSQL connection pool initialized with {self.config.min_connections}-{self.config.max_connections} connections")
             
-            # Ensure pgvector extension is available
+            # Ensure pgvector extension and optimizations
             async with self.pool.acquire() as conn:
                 await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-                logger.info("pgvector extension ensured")
+                await conn.execute("SET shared_preload_libraries = 'pg_stat_statements'")
+                await conn.execute("SET work_mem = '256MB'")
+                await conn.execute("SET effective_cache_size = '4GB'")
+                logger.info("PostgreSQL extensions and optimizations configured")
                 
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL: {e}")
             raise
+    
+    async def _setup_connection(self, conn):
+        """Setup individual connection with optimizations."""
+        await conn.execute("SET statement_timeout = '15s'")
+        await conn.execute("SET lock_timeout = '10s'")
+        await conn.execute("SET idle_in_transaction_session_timeout = '60s'")
+        await conn.set_type_codec('json', encoder=json.dumps, decoder=json.loads, schema='pg_catalog')
     
     async def close(self):
         """Close connection pool."""
@@ -305,6 +321,87 @@ class PostgresAdapter:
             )
             
             logger.info(f"Cleaned up {deleted_clicks} old click feedback records and {deleted_sessions} old search sessions")
+    
+    async def get_cached_search_results(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        """Retrieve cached search results from database cache table."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT results, created_at
+                FROM search_cache
+                WHERE cache_key = $1 AND expires_at > NOW()
+                """,
+                cache_key
+            )
+            
+            if row:
+                # Update access time for LRU eviction
+                await conn.execute(
+                    "UPDATE search_cache SET accessed_at = NOW() WHERE cache_key = $1",
+                    cache_key
+                )
+                return row['results']
+            
+            return None
+    
+    async def cache_search_results(self, cache_key: str, results: List[Dict[str, Any]], ttl_seconds: int = 3600):
+        """Cache search results in database cache table."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO search_cache (cache_key, results, expires_at, accessed_at)
+                VALUES ($1, $2, NOW() + INTERVAL '%s seconds', NOW())
+                ON CONFLICT (cache_key) DO UPDATE SET
+                    results = EXCLUDED.results,
+                    expires_at = EXCLUDED.expires_at,
+                    accessed_at = NOW()
+                """,
+                cache_key, results, ttl_seconds
+            )
+    
+    async def cleanup_expired_cache(self):
+        """Clean up expired cache entries."""
+        async with self.pool.acquire() as conn:
+            deleted_count = await conn.fetchval(
+                "DELETE FROM search_cache WHERE expires_at < NOW() RETURNING COUNT(*)"
+            )
+            logger.info(f"Cleaned up {deleted_count} expired cache entries")
+    
+    async def evict_lru_cache_entries(self, max_entries: int = 10000):
+        """Evict least recently used cache entries to maintain size limit."""
+        async with self.pool.acquire() as conn:
+            deleted_count = await conn.fetchval(
+                """
+                DELETE FROM search_cache
+                WHERE cache_key IN (
+                    SELECT cache_key
+                    FROM search_cache
+                    ORDER BY accessed_at ASC
+                    OFFSET $1
+                )
+                RETURNING COUNT(*)
+                """,
+                max_entries
+            )
+            if deleted_count > 0:
+                logger.info(f"Evicted {deleted_count} LRU cache entries")
+    
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring."""
+        async with self.pool.acquire() as conn:
+            stats = await conn.fetchrow(
+                """
+                SELECT 
+                    COUNT(*) as total_entries,
+                    COUNT(CASE WHEN expires_at > NOW() THEN 1 END) as active_entries,
+                    COUNT(CASE WHEN expires_at <= NOW() THEN 1 END) as expired_entries,
+                    AVG(EXTRACT(EPOCH FROM (NOW() - accessed_at))) as avg_age_seconds,
+                    pg_size_pretty(pg_total_relation_size('search_cache')) as table_size
+                FROM search_cache
+                """
+            )
+            
+            return dict(stats) if stats else {}
     
     async def get_database_stats(self) -> Dict[str, Any]:
         """Get database statistics for monitoring."""

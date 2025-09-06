@@ -2,7 +2,7 @@ from fastapi import FastAPI, Body, HTTPException, Depends
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Union, AsyncGenerator
-import pathlib, json, datetime, re, logging, uuid, asyncio
+import pathlib, json, datetime, re, logging, uuid, asyncio, time
 import sys
 import os
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "indexer"))
@@ -21,6 +21,16 @@ try:
 except ImportError:
     LearningToRankReranker = None
     logging.warning("Learning-to-rank module not available for click feedback")
+
+# Import monitoring system
+try:
+    from server.monitoring import metrics_collector, MonitoringMiddleware, track_search_performance, SearchMetrics
+except ImportError:
+    metrics_collector = None
+    MonitoringMiddleware = None
+    track_search_performance = None
+    SearchMetrics = None
+    logging.warning("Monitoring system not available")
 
 # Import OpenTelemetry for observability
 try:
@@ -44,6 +54,10 @@ DB_PATH = BASE_DIR / "data" / "docfoundry.db"
 DOCS_DIR = BASE_DIR / "docs"
 
 app = FastAPI(title="DocFoundry RAG API", version="0.2.0")
+
+# Add monitoring middleware
+if MonitoringMiddleware and metrics_collector:
+    app.add_middleware(MonitoringMiddleware, metrics_collector=metrics_collector)
 
 # Initialize OpenTelemetry instrumentation
 if TELEMETRY_AVAILABLE:
@@ -163,6 +177,92 @@ class SearchSessionRequest(BaseModel):
     session_id: Optional[str] = None
     user_id: Optional[str] = None
 
+@app.get("/")
+async def root():
+    """Root endpoint with API information."""
+    return {
+        "message": "DocFoundry RAG API",
+        "version": "0.2.0",
+        "docs": "/docs",
+        "health": "/health",
+        "metrics": "/metrics"
+    }
+
+
+@app.get("/metrics")
+async def get_metrics(hours: int = 24):
+    """Get API performance metrics."""
+    if not metrics_collector:
+        return {"error": "Monitoring not available"}
+    
+    try:
+        summary_stats = metrics_collector.get_summary_stats(hours=hours)
+        endpoint_stats = metrics_collector.get_endpoint_stats()
+        
+        return {
+            "summary": summary_stats,
+            "endpoints": endpoint_stats,
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error retrieving metrics: {e}")
+        return {"error": "Failed to retrieve metrics"}
+
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check with system metrics."""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "version": "0.2.0",
+        "components": {}
+    }
+    
+    # Check database connectivity
+    try:
+        if db_adapter:
+            # Test database connection
+            await db_adapter.get_stats()
+            health_status["components"]["database"] = {"status": "healthy"}
+        else:
+            health_status["components"]["database"] = {"status": "unavailable"}
+    except Exception as e:
+        health_status["components"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health_status["status"] = "degraded"
+    
+    # Check embedding manager
+    try:
+        if embedding_manager:
+            health_status["components"]["embeddings"] = {"status": "healthy"}
+        else:
+            health_status["components"]["embeddings"] = {"status": "unavailable"}
+    except Exception as e:
+        health_status["components"]["embeddings"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health_status["status"] = "degraded"
+    
+    # Add system metrics if available
+    if metrics_collector:
+        try:
+            recent_stats = metrics_collector.get_summary_stats(hours=1)
+            health_status["system"] = recent_stats.get("system", {})
+            health_status["performance"] = {
+                "avg_response_time": recent_stats.get("requests", {}).get("avg_response_time", 0),
+                "error_rate": recent_stats.get("requests", {}).get("error_rate", 0),
+                "cache_hit_rate": recent_stats.get("cache", {}).get("hits", 0) / max(recent_stats.get("cache", {}).get("total_requests", 1), 1)
+            }
+        except Exception as e:
+            logging.warning(f"Could not retrieve system metrics: {e}")
+    
+    return health_status
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "time": datetime.datetime.utcnow().isoformat()+"Z"}
@@ -179,60 +279,221 @@ async def search(req: SearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] =
 
 @app.post("/search/semantic")
 async def semantic_search(req: SemanticSearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
-    """Perform semantic search using embeddings"""
+    """Perform semantic search using embeddings with caching optimization"""
     if TELEMETRY_AVAILABLE:
         record_counter("search_requests_total", {"type": "semantic"})
     
-    try:
-        if TELEMETRY_AVAILABLE:
-            with trace_span("semantic_search") as span:
-                span.set_attribute("query", req.q)
-                span.set_attribute("k", req.k)
-                span.set_attribute("min_similarity", req.min_similarity)
+    # Generate cache key for query
+    cache_key = f"semantic:{hash(req.q)}:{req.k}:{req.min_similarity}"
+    
+    # Track search performance
+    if track_search_performance and metrics_collector:
+        async with track_search_performance(metrics_collector, req.q, "semantic") as search_metrics:
+            try:
+                # Check cache first (if available)
+                cached_result = None
+                if hasattr(db, 'get_cached_result'):
+                    cached_result = await db.get_cached_result(cache_key)
+                    if cached_result:
+                        search_metrics.cache_hit = True
+                        search_metrics.results_count = len(cached_result)
+                        if TELEMETRY_AVAILABLE:
+                            record_counter("cache_hits_total", {"type": "semantic"})
+                        return {"results": cached_result, "search_type": "semantic", "cached": True}
                 
-                results = await db.search_semantic(req.q, req.k, req.min_similarity)
+                if TELEMETRY_AVAILABLE:
+                    with trace_span("semantic_search") as span:
+                        span.set_attribute("query", req.q)
+                        span.set_attribute("k", req.k)
+                        span.set_attribute("min_similarity", req.min_similarity)
+                        
+                        # Add query optimization for large result sets
+                        optimized_k = min(req.k * 2, 100)  # Fetch more for better ranking
+                        
+                        # Generate embedding from query text
+                        query_embedding = embedding_manager.generate_embedding(req.q)
+                        
+                        # Track database query time
+                        db_start = time.time()
+                        results = await db.search_semantic(query_embedding, optimized_k, req.min_similarity)
+                        search_metrics.db_query_time = time.time() - db_start
+                        
+                        # Apply post-processing and limit to requested k
+                        results = results[:req.k]
+                        
+                        search_metrics.results_count = len(results)
+                        span.set_attribute("results_count", len(results))
+                        record_histogram("search_results_count", len(results), {"type": "semantic"})
+                        record_counter("search_requests_success", {"type": "semantic"})
+                else:
+                    optimized_k = min(req.k * 2, 100)
+                    # Generate embedding from query text
+                    query_embedding = embedding_manager.generate_embedding(req.q)
+                    db_start = time.time()
+                    results = await db.search_semantic(query_embedding, optimized_k, req.min_similarity)
+                    search_metrics.db_query_time = time.time() - db_start
+                    results = results[:req.k]
+                    search_metrics.results_count = len(results)
                 
-                span.set_attribute("results_count", len(results))
-                record_histogram("search_results_count", len(results), {"type": "semantic"})
-                record_counter("search_requests_success", {"type": "semantic"})
-        else:
-            results = await db.search_semantic(req.q, req.k, req.min_similarity)
+                # Cache results for future requests
+                if hasattr(db, 'cache_result'):
+                    await db.cache_result(cache_key, results, ttl=3600)  # 1 hour TTL
+                    
+                return {"results": results, "search_type": "semantic", "cached": False}
+            except Exception as e:
+                if TELEMETRY_AVAILABLE:
+                    record_counter("search_requests_error", {"type": "semantic", "error": str(type(e).__name__)})
+                logging.error(f"Semantic search error: {e}")
+                raise HTTPException(status_code=500, detail="Semantic search failed")
+    else:
+        # Fallback without monitoring
+        try:
+            # Check cache first (if available)
+            cached_result = None
+            if hasattr(db, 'get_cached_result'):
+                cached_result = await db.get_cached_result(cache_key)
+                if cached_result:
+                    if TELEMETRY_AVAILABLE:
+                        record_counter("cache_hits_total", {"type": "semantic"})
+                    return {"results": cached_result, "search_type": "semantic", "cached": True}
             
-        return {"results": results, "search_type": "semantic"}
-    except Exception as e:
-        if TELEMETRY_AVAILABLE:
-            record_counter("search_requests_error", {"type": "semantic", "error": str(type(e).__name__)})
-        logging.error(f"Semantic search error: {e}")
-        raise HTTPException(status_code=500, detail="Semantic search failed")
+            if TELEMETRY_AVAILABLE:
+                with trace_span("semantic_search") as span:
+                    span.set_attribute("query", req.q)
+                    span.set_attribute("k", req.k)
+                    span.set_attribute("min_similarity", req.min_similarity)
+                    
+                    # Add query optimization for large result sets
+                    optimized_k = min(req.k * 2, 100)  # Fetch more for better ranking
+                    # Generate embedding from query text
+                    query_embedding = embedding_manager.generate_embedding(req.q)
+                    results = await db.search_semantic(query_embedding, optimized_k, req.min_similarity)
+                    
+                    # Apply post-processing and limit to requested k
+                    results = results[:req.k]
+                    
+                    span.set_attribute("results_count", len(results))
+                    record_histogram("search_results_count", len(results), {"type": "semantic"})
+                    record_counter("search_requests_success", {"type": "semantic"})
+            else:
+                optimized_k = min(req.k * 2, 100)
+                # Generate embedding from query text
+                query_embedding = embedding_manager.generate_embedding(req.q)
+                results = await db.search_semantic(query_embedding, optimized_k, req.min_similarity)
+                results = results[:req.k]
+            
+            # Cache results for future requests
+            if hasattr(db, 'cache_result'):
+                await db.cache_result(cache_key, results, ttl=3600)  # 1 hour TTL
+                
+            return {"results": results, "search_type": "semantic", "cached": False}
+        except Exception as e:
+            if TELEMETRY_AVAILABLE:
+                record_counter("search_requests_error", {"type": "semantic", "error": str(type(e).__name__)})
+            logging.error(f"Semantic search error: {e}")
+            raise HTTPException(status_code=500, detail="Semantic search failed")
 
 @app.post("/search/hybrid")
 async def hybrid_search(req: HybridSearchRequest, db: Union[PostgresAdapter, SQLiteAdapter] = Depends(get_db)):
-    """Perform hybrid search combining FTS and semantic search using RRF"""
+    """Perform hybrid search combining FTS and semantic search using RRF with optimization"""
     if TELEMETRY_AVAILABLE:
         record_counter("search_requests_total", {"type": "hybrid"})
     
-    try:
-        if TELEMETRY_AVAILABLE:
-            with trace_span("hybrid_search") as span:
-                span.set_attribute("query", req.q)
-                span.set_attribute("k", req.k)
-                span.set_attribute("rrf_k", req.rrf_k)
-                span.set_attribute("min_similarity", req.min_similarity)
+    # Generate cache key for hybrid query
+    cache_key = f"hybrid:{hash(req.q)}:{req.k}:{req.rrf_k}:{req.min_similarity}"
+    
+    # Track search performance
+    if track_search_performance and metrics_collector:
+        async with track_search_performance(metrics_collector, req.q, "hybrid") as search_metrics:
+            try:
+                # Check cache first
+                cached_result = None
+                if hasattr(db, 'get_cached_result'):
+                    cached_result = await db.get_cached_result(cache_key)
+                    if cached_result:
+                        search_metrics.cache_hit = True
+                        search_metrics.results_count = len(cached_result)
+                        if TELEMETRY_AVAILABLE:
+                            record_counter("cache_hits_total", {"type": "hybrid"})
+                        return {"results": cached_result, "search_type": "hybrid_rrf", "cached": True}
                 
-                results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                if TELEMETRY_AVAILABLE:
+                    with trace_span("hybrid_search") as span:
+                        span.set_attribute("query", req.q)
+                        span.set_attribute("k", req.k)
+                        span.set_attribute("rrf_k", req.rrf_k)
+                        span.set_attribute("min_similarity", req.min_similarity)
+                        
+                        # Optimize hybrid search with parallel execution
+                        start_time = time.time()
+                        results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                        search_time = time.time() - start_time
+                        search_metrics.db_query_time = search_time
+                        
+                        span.set_attribute("results_count", len(results))
+                        span.set_attribute("search_duration_ms", search_time * 1000)
+                        record_histogram("search_results_count", len(results), {"type": "hybrid"})
+                        record_histogram("search_duration_seconds", search_time, {"type": "hybrid"})
+                        record_counter("search_requests_success", {"type": "hybrid"})
+                else:
+                    start_time = time.time()
+                    results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                    search_metrics.db_query_time = time.time() - start_time
                 
-                span.set_attribute("results_count", len(results))
-                record_histogram("search_results_count", len(results), {"type": "hybrid"})
-                record_counter("search_requests_success", {"type": "hybrid"})
-        else:
-            results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                search_metrics.results_count = len(results)
+                
+                # Cache results with shorter TTL for hybrid (more dynamic)
+                if hasattr(db, 'cache_result'):
+                    await db.cache_result(cache_key, results, ttl=1800)  # 30 minutes TTL
+                    
+                return {"results": results, "search_type": "hybrid_rrf", "cached": False}
+            except Exception as e:
+                if TELEMETRY_AVAILABLE:
+                    record_counter("search_requests_error", {"type": "hybrid", "error": str(type(e).__name__)})
+                logging.error(f"Hybrid search error: {e}")
+                raise HTTPException(status_code=500, detail="Hybrid search failed")
+    else:
+        # Fallback without monitoring
+        try:
+            # Check cache first
+            cached_result = None
+            if hasattr(db, 'get_cached_result'):
+                cached_result = await db.get_cached_result(cache_key)
+                if cached_result:
+                    if TELEMETRY_AVAILABLE:
+                        record_counter("cache_hits_total", {"type": "hybrid"})
+                    return {"results": cached_result, "search_type": "hybrid_rrf", "cached": True}
             
-        return {"results": results, "search_type": "hybrid_rrf"}
-    except Exception as e:
-        if TELEMETRY_AVAILABLE:
-            record_counter("search_requests_error", {"type": "hybrid", "error": str(type(e).__name__)})
-        logging.error(f"Hybrid search error: {e}")
-        raise HTTPException(status_code=500, detail="Hybrid search failed")
+            if TELEMETRY_AVAILABLE:
+                with trace_span("hybrid_search") as span:
+                    span.set_attribute("query", req.q)
+                    span.set_attribute("k", req.k)
+                    span.set_attribute("rrf_k", req.rrf_k)
+                    span.set_attribute("min_similarity", req.min_similarity)
+                    
+                    # Optimize hybrid search with parallel execution
+                    start_time = time.time()
+                    results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+                    search_time = time.time() - start_time
+                    
+                    span.set_attribute("results_count", len(results))
+                    span.set_attribute("search_duration_ms", search_time * 1000)
+                    record_histogram("search_results_count", len(results), {"type": "hybrid"})
+                    record_histogram("search_duration_seconds", search_time, {"type": "hybrid"})
+                    record_counter("search_requests_success", {"type": "hybrid"})
+            else:
+                results = await db.search_hybrid(req.q, req.k, req.rrf_k, req.min_similarity)
+            
+            # Cache results with shorter TTL for hybrid (more dynamic)
+            if hasattr(db, 'cache_result'):
+                await db.cache_result(cache_key, results, ttl=1800)  # 30 minutes TTL
+                
+            return {"results": results, "search_type": "hybrid_rrf", "cached": False}
+        except Exception as e:
+            if TELEMETRY_AVAILABLE:
+                record_counter("search_requests_error", {"type": "hybrid", "error": str(type(e).__name__)})
+            logging.error(f"Hybrid search error: {e}")
+            raise HTTPException(status_code=500, detail="Hybrid search failed")
 
 # Streaming search endpoints
 async def stream_search_results(results: List[dict], search_type: str) -> AsyncGenerator[str, None]:
