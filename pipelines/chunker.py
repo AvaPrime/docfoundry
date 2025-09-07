@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional, Tuple, Iterable
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from collections import defaultdict
+from datetime import datetime
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +39,19 @@ class DocumentChunk:
         }
 
 class DocumentChunker:
-    """Chunks documents into smaller pieces for better retrieval."""
+    """Chunks documents into smaller pieces for better retrieval with lineage tracking."""
     
     def __init__(self, 
                  chunk_size: int = 1000,
                  chunk_overlap: int = 200,
                  min_chunk_size: int = 100,
                  max_tokens: int = 512,
-                 overlap_tokens: int = 64):
-        """Initialize chunker.
+                 overlap_tokens: int = 64,
+                 chunker_version: str = "v1.0.0",
+                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+                 embedding_version: str = "v1.0.0",
+                 embedding_dimensions: int = 384):
+        """Initialize chunker with lineage tracking.
         
         Args:
             chunk_size: Target size for each chunk in characters
@@ -53,12 +59,23 @@ class DocumentChunker:
             min_chunk_size: Minimum size for a chunk to be kept
             max_tokens: Maximum tokens per chunk (for advanced chunking)
             overlap_tokens: Token overlap for advanced chunking
+            chunker_version: Version of the chunker algorithm
+            embedding_model: Name of the embedding model to be used
+            embedding_version: Version of the embedding model
+            embedding_dimensions: Dimensions of the embedding vectors
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.min_chunk_size = min_chunk_size
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
+        
+        # Lineage metadata
+        self.chunker_version = chunker_version
+        self.embedding_model = embedding_model
+        self.embedding_version = embedding_version
+        self.embedding_dimensions = embedding_dimensions
+        
         # Simple token estimation: ~4 chars per token for English
         self.chars_per_token = 4
     
@@ -132,6 +149,22 @@ class DocumentChunker:
     def _generate_content_hash(self, text: str) -> str:
         """Generate hash of chunk content for change detection."""
         return hashlib.sha256(text.encode()).hexdigest()
+    
+    def _generate_lineage_id(self) -> str:
+        """Generate unique lineage ID based on chunker and embedding configuration."""
+        lineage_data = f"{self.chunker_version}-{self.embedding_model}-{self.embedding_version}"
+        return hashlib.md5(lineage_data.encode()).hexdigest()[:16]
+    
+    def _get_chunker_config(self) -> Dict[str, Any]:
+        """Get current chunker configuration for lineage tracking."""
+        return {
+            'chunk_size': self.chunk_size,
+            'chunk_overlap': self.chunk_overlap,
+            'min_chunk_size': self.min_chunk_size,
+            'max_tokens': self.max_tokens,
+            'overlap_tokens': self.overlap_tokens,
+            'chars_per_token': self.chars_per_token
+        }
     
     def _split_by_sentences(self, text: str, max_chars: int, overlap_chars: int) -> List[str]:
         """Split text by sentences with overlap, respecting sentence boundaries."""
@@ -211,7 +244,15 @@ class DocumentChunker:
                         'heading_level': len(h_path) if h_path else None,
                         'content_hash': content_hash,
                         'token_count': token_len,
-                        'section_offset': chunk_offset
+                        'section_offset': chunk_offset,
+                        # Lineage metadata
+                        'chunker_version': self.chunker_version,
+                        'chunker_config': self._get_chunker_config(),
+                        'embedding_model': self.embedding_model,
+                        'embedding_version': self.embedding_version,
+                        'embedding_dimensions': self.embedding_dimensions,
+                        'processing_timestamp': datetime.utcnow().isoformat(),
+                        'lineage_id': self._generate_lineage_id()
                     }
                 })
                 chunk_offset += 1
@@ -234,7 +275,15 @@ class DocumentChunker:
                                 'heading_level': len(h_path) if h_path else None,
                                 'content_hash': content_hash,
                                 'token_count': token_len,
-                                'section_offset': chunk_offset
+                                'section_offset': chunk_offset,
+                                # Lineage metadata
+                                'chunker_version': self.chunker_version,
+                                'chunker_config': self._get_chunker_config(),
+                                'embedding_model': self.embedding_model,
+                                'embedding_version': self.embedding_version,
+                                'embedding_dimensions': self.embedding_dimensions,
+                                'processing_timestamp': datetime.utcnow().isoformat(),
+                                'lineage_id': self._generate_lineage_id()
                             }
                         })
                         chunk_offset += 1
@@ -394,7 +443,15 @@ class DocumentChunker:
                                 'heading': heading['text'] if heading else None,
                                 'heading_level': heading['level'] if heading else None,
                                 'section_part': i + 1,
-                                'total_parts': len(section_chunks)
+                                'total_parts': len(section_chunks),
+                                # Lineage metadata
+                                'chunker_version': self.chunker_version,
+                                'chunker_config': self._get_chunker_config(),
+                                'embedding_model': self.embedding_model,
+                                'embedding_version': self.embedding_version,
+                                'embedding_dimensions': self.embedding_dimensions,
+                                'processing_timestamp': datetime.utcnow().isoformat(),
+                                'lineage_id': self._generate_lineage_id()
                             }
                         })
                 else:
@@ -402,7 +459,15 @@ class DocumentChunker:
                         'content': section_text,
                         'metadata': {
                             'heading': heading['text'] if heading else None,
-                            'heading_level': heading['level'] if heading else None
+                            'heading_level': heading['level'] if heading else None,
+                            # Lineage metadata
+                            'chunker_version': self.chunker_version,
+                            'chunker_config': self._get_chunker_config(),
+                            'embedding_model': self.embedding_model,
+                            'embedding_version': self.embedding_version,
+                            'embedding_dimensions': self.embedding_dimensions,
+                            'processing_timestamp': datetime.utcnow().isoformat(),
+                            'lineage_id': self._generate_lineage_id()
                         }
                     })
             
@@ -411,7 +476,19 @@ class DocumentChunker:
             # Fallback to simple chunking
             text = self._clean_html(content)
             simple_chunks = self._create_chunks_by_size(text)
-            chunks = [{'content': chunk, 'metadata': {}} for chunk in simple_chunks]
+            chunks = [{
+                'content': chunk, 
+                'metadata': {
+                    # Lineage metadata
+                    'chunker_version': self.chunker_version,
+                    'chunker_config': self._get_chunker_config(),
+                    'embedding_model': self.embedding_model,
+                    'embedding_version': self.embedding_version,
+                    'embedding_dimensions': self.embedding_dimensions,
+                    'processing_timestamp': datetime.utcnow().isoformat(),
+                    'lineage_id': self._generate_lineage_id()
+                }
+            } for chunk in simple_chunks]
         
         return chunks
     
@@ -457,7 +534,19 @@ class DocumentChunker:
                 clean_content = content
             
             simple_chunks = self._create_chunks_by_size(clean_content)
-            chunks_data = [{'content': chunk, 'metadata': {}} for chunk in simple_chunks]
+            chunks_data = [{
+                'content': chunk, 
+                'metadata': {
+                    # Lineage metadata
+                    'chunker_version': self.chunker_version,
+                    'chunker_config': self._get_chunker_config(),
+                    'embedding_model': self.embedding_model,
+                    'embedding_version': self.embedding_version,
+                    'embedding_dimensions': self.embedding_dimensions,
+                    'processing_timestamp': datetime.utcnow().isoformat(),
+                    'lineage_id': self._generate_lineage_id()
+                }
+            } for chunk in simple_chunks]
         
         # Create DocumentChunk objects
         document_chunks = []
@@ -538,8 +627,12 @@ def chunk_documents(documents: List[Dict[str, Any]],
                    chunk_size: int = 1000,
                    chunk_overlap: int = 200,
                    min_chunk_size: int = 100,
-                   use_heading_aware: bool = True) -> List[DocumentChunk]:
-    """Convenience function to chunk documents.
+                   use_heading_aware: bool = True,
+                   chunker_version: str = "v1.0.0",
+                   embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+                   embedding_version: str = "v1.0.0",
+                   embedding_dimensions: int = 384) -> List[DocumentChunk]:
+    """Convenience function to chunk documents with lineage tracking.
     
     Args:
         documents: List of document dictionaries
@@ -547,6 +640,10 @@ def chunk_documents(documents: List[Dict[str, Any]],
         chunk_overlap: Number of characters to overlap between chunks
         min_chunk_size: Minimum size for a chunk to be kept
         use_heading_aware: Whether to use heading-aware chunking for HTML
+        chunker_version: Version of the chunker algorithm
+        embedding_model: Name of the embedding model to be used
+        embedding_version: Version of the embedding model
+        embedding_dimensions: Dimensions of the embedding vectors
     
     Returns:
         List of DocumentChunk objects
@@ -554,7 +651,11 @@ def chunk_documents(documents: List[Dict[str, Any]],
     chunker = DocumentChunker(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        min_chunk_size=min_chunk_size
+        min_chunk_size=min_chunk_size,
+        chunker_version=chunker_version,
+        embedding_model=embedding_model,
+        embedding_version=embedding_version,
+        embedding_dimensions=embedding_dimensions
     )
     
     return chunker.chunk_documents(documents, use_heading_aware)
@@ -563,8 +664,12 @@ def chunk_single_document(document: Dict[str, Any],
                          chunk_size: int = 1000,
                          chunk_overlap: int = 200,
                          min_chunk_size: int = 100,
-                         use_heading_aware: bool = True) -> List[DocumentChunk]:
-    """Convenience function to chunk a single document.
+                         use_heading_aware: bool = True,
+                         chunker_version: str = "v1.0.0",
+                         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+                         embedding_version: str = "v1.0.0",
+                         embedding_dimensions: int = 384) -> List[DocumentChunk]:
+    """Convenience function to chunk a single document with lineage tracking.
     
     Args:
         document: Document dictionary
@@ -572,6 +677,10 @@ def chunk_single_document(document: Dict[str, Any],
         chunk_overlap: Number of characters to overlap between chunks
         min_chunk_size: Minimum size for a chunk to be kept
         use_heading_aware: Whether to use heading-aware chunking for HTML
+        chunker_version: Version of the chunker algorithm
+        embedding_model: Name of the embedding model to be used
+        embedding_version: Version of the embedding model
+        embedding_dimensions: Dimensions of the embedding vectors
     
     Returns:
         List of DocumentChunk objects
@@ -579,7 +688,11 @@ def chunk_single_document(document: Dict[str, Any],
     chunker = DocumentChunker(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        min_chunk_size=min_chunk_size
+        min_chunk_size=min_chunk_size,
+        chunker_version=chunker_version,
+        embedding_model=embedding_model,
+        embedding_version=embedding_version,
+        embedding_dimensions=embedding_dimensions
     )
     
     return chunker.chunk_document(document, use_heading_aware)

@@ -3,12 +3,14 @@
 Provides functionality to index crawled documents into the vector database.
 """
 
-import logging
 import sqlite3
 import hashlib
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import json
 from pathlib import Path
+from .differential_chunker import DifferentialChunker
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +49,47 @@ def index_documents(documents: List[Dict[str, Any]],
                 content_hash TEXT NOT NULL,
                 source_name TEXT,
                 indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                metadata TEXT
+                metadata TEXT,
+                etag TEXT,
+                last_modified TEXT,
+                last_crawled TIMESTAMP
             )
         """)
         
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS document_chunks (
-                id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
+            CREATE TABLE IF NOT EXISTS chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                heading TEXT,
+                anchor TEXT,
+                text TEXT NOT NULL,
+                embedding BLOB,
+                chunk_index INTEGER,
+                content_hash TEXT,
                 token_count INTEGER,
                 metadata TEXT,
-                FOREIGN KEY (document_id) REFERENCES documents (id)
+                -- Lineage metadata columns
+                chunker_version TEXT DEFAULT 'v1.0.0',
+                chunker_config TEXT DEFAULT '{}',
+                embedding_model TEXT DEFAULT 'sentence-transformers/all-MiniLM-L6-v2',
+                embedding_version TEXT DEFAULT 'v1.0.0',
+                embedding_dimensions INTEGER DEFAULT 384,
+                processing_timestamp TEXT,
+                lineage_id TEXT
             )
         """)
+        
+        # Create indexes for lineage metadata
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_lineage_id ON chunks(lineage_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_chunker_version ON chunks(chunker_version)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_embedding_model ON chunks(embedding_model)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_processing_timestamp ON chunks(processing_timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id)")
+        
+        # Create indexes for incremental crawling
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_url ON documents(url)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_last_crawled ON documents(last_crawled)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)")
         
         conn.commit()
         
@@ -88,8 +115,8 @@ def index_documents(documents: List[Dict[str, Any]],
                 # Insert or update document
                 cursor.execute("""
                     INSERT OR REPLACE INTO documents 
-                    (id, url, title, content, content_hash, source_name, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, url, title, content, content_hash, source_name, metadata, etag, last_modified, last_crawled)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
                     doc_id,
                     doc['url'],
@@ -97,7 +124,9 @@ def index_documents(documents: List[Dict[str, Any]],
                     doc['content'],
                     content_hash,
                     doc.get('source_name', ''),
-                    str(doc.get('metadata', {}))
+                    str(doc.get('metadata', {})),
+                    doc.get('etag'),
+                    doc.get('last_modified')
                 ))
                 
                 indexed_count += 1
@@ -161,7 +190,10 @@ def get_document_by_id(doc_id: str, db_path: str) -> Optional[Dict[str, Any]]:
                 "content_hash": row[4],
                 "source_name": row[5],
                 "indexed_at": row[6],
-                "metadata": row[7]
+                "metadata": row[7],
+                "etag": row[8],
+                "last_modified": row[9],
+                "last_crawled": row[10]
             }
         
         return None
@@ -169,6 +201,72 @@ def get_document_by_id(doc_id: str, db_path: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to get document {doc_id}: {str(e)}")
         return None
+
+def get_document_metadata_for_url(url: str, db_path: str) -> Optional[Dict[str, Any]]:
+    """Get document metadata for incremental crawling
+    
+    Args:
+        url: Document URL
+        db_path: Path to the SQLite database
+    
+    Returns:
+        Document metadata dictionary or None if not found
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        doc_id = hashlib.sha256(url.encode()).hexdigest()[:16]
+        cursor.execute(
+            "SELECT etag, last_modified, content_hash, last_crawled FROM documents WHERE id = ?",
+            (doc_id,)
+        )
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {
+                'etag': row[0],
+                'last_modified': row[1],
+                'content_hash': row[2],
+                'last_crawled': row[3]
+            }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to get document metadata for {url}: {str(e)}")
+        return None
+
+def should_recrawl_document(url: str, db_path: str, max_age_hours: int = 24) -> bool:
+    """Determine if a document should be re-crawled based on age and metadata
+    
+    Args:
+        url: Document URL
+        db_path: Path to the SQLite database
+        max_age_hours: Maximum age in hours before re-crawling
+    
+    Returns:
+        True if document should be re-crawled, False otherwise
+    """
+    try:
+        metadata = get_document_metadata_for_url(url, db_path)
+        if not metadata:
+            return True  # New document, should crawl
+        
+        # Check if document is older than max_age_hours
+        if metadata['last_crawled']:
+            from datetime import datetime, timedelta
+            last_crawled = datetime.fromisoformat(metadata['last_crawled'])
+            if datetime.now() - last_crawled > timedelta(hours=max_age_hours):
+                return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"Failed to check recrawl status for {url}: {str(e)}")
+        return True  # Default to crawling on error
 
 def list_documents(db_path: str, source_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
     """List documents from the database.
@@ -241,7 +339,7 @@ def delete_documents_by_source(source_name: str, db_path: str) -> Dict[str, Any]
         
         # Delete document chunks first (foreign key constraint)
         cursor.execute("""
-            DELETE FROM document_chunks 
+            DELETE FROM chunks 
             WHERE document_id IN (
                 SELECT id FROM documents WHERE source_name = ?
             )
