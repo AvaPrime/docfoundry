@@ -4,7 +4,14 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 
-A comprehensive **Documentation Intelligence System** that discovers, ingests, normalizes, indexes, and serves documentation from multiple sources. DocFoundry provides intelligent search capabilities, seamless integrations with development tools, and advanced analytics for documentation management.
+A comprehensive **Documentation Intelligence System** that transforms scattered documentation into an intelligent, searchable knowledge base. DocFoundry discovers, ingests, normalizes, indexes, and serves documentation from multiple sources including websites, repositories, feeds, and local files. 
+
+**Key Value Propositions:**
+- 🎯 **Unified Knowledge Access**: Centralize documentation from multiple sources into a single searchable interface
+- 🧠 **Intelligent Search**: Combine full-text search with semantic understanding for precise results
+- 🔌 **Developer-First**: Seamless integration with VS Code, Chrome, and development workflows
+- 📊 **Analytics-Driven**: Comprehensive observability and search analytics for continuous improvement
+- 🚀 **Production-Ready**: Scalable architecture supporting both SQLite and PostgreSQL backends
 
 ## 🚀 Features
 
@@ -31,16 +38,25 @@ A comprehensive **Documentation Intelligence System** that discovers, ingests, n
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### System Requirements
+
+**Minimum Requirements:**
 - Python 3.11 or higher
-- Git
-- Optional: Docker for containerized deployment
+- 4GB RAM (8GB recommended for production)
+- 2GB available disk space
+- Git for version control
+
+**Optional Dependencies:**
+- Docker and Docker Compose for containerized deployment
+- PostgreSQL 14+ with pgvector extension for production deployments
+- Redis for caching (future enhancement)
+- Node.js 18+ for browser extension development
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/codessa-prime/docfoundry.git
+git clone https://github.com/AvaPrime/docfoundry.git
 cd docfoundry
 
 # Create and activate virtual environment
@@ -256,49 +272,219 @@ docker run -p 8001:8001 \
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our contributing guidelines:
+We welcome contributions from the community! DocFoundry is built with collaboration in mind, and we appreciate all forms of contribution including code, documentation, bug reports, and feature suggestions.
 
-### Development Setup
+### Getting Started
+
+**Before Contributing:**
+1. Read our [Code of Conduct](CONTRIBUTING.md#code-of-conduct)
+2. Check existing [issues](https://github.com/AvaPrime/docfoundry/issues) and [discussions](https://github.com/AvaPrime/docfoundry/discussions)
+3. Review our [project roadmap](#-roadmap) to understand current priorities
+
+### Development Environment Setup
+
 ```bash
-# Clone and setup development environment
-git clone https://github.com/codessa-prime/docfoundry.git
+# 1. Fork and clone the repository
+git clone https://github.com/YOUR_USERNAME/docfoundry.git
 cd docfoundry
-make setup
 
-# Run tests
-make test
+# 2. Set up development environment
+make setup  # Installs dev dependencies and pre-commit hooks
 
-# Run linting
-make lint
+# 3. Verify installation
+make test   # Run test suite
+make lint   # Check code quality
 
-# Start development server
-make dev
+# 4. Start development server
+make dev    # Starts API with auto-reload
 ```
 
-### Code Standards
-- Follow PEP 8 for Python code
-- Add type hints for new functions
-- Include docstrings for public APIs
-- Write tests for new features
-- Update documentation as needed
+### Development Workflow
 
-### Submitting Changes
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+**Code Quality Standards:**
+- **Python Style**: Follow PEP 8, enforced by `black` and `flake8`
+- **Type Safety**: Add type hints for all new functions and classes
+- **Documentation**: Include comprehensive docstrings following Google style
+- **Testing**: Maintain >90% test coverage for new code
+- **Security**: Follow OWASP guidelines, no hardcoded secrets
+
+**Commit Guidelines:**
+- Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`
+- Keep commits atomic and well-described
+- Reference issues in commit messages: `fixes #123`
+
+### Types of Contributions
+
+**🐛 Bug Reports**
+- Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml)
+- Include reproduction steps, expected vs actual behavior
+- Provide system information and logs when relevant
+
+**✨ Feature Requests**
+- Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.yml)
+- Explain the use case and expected benefits
+- Consider implementation complexity and maintenance burden
+
+**📝 Documentation**
+- Improve existing documentation clarity and accuracy
+- Add examples and tutorials for common use cases
+- Translate documentation to other languages
+
+**🔧 Code Contributions**
+- Start with "good first issue" labeled items
+- Discuss major changes in issues before implementation
+- Follow the pull request template requirements
+
+### Pull Request Process
+
+1. **Create Feature Branch**
+   ```bash
+   git checkout -b feature/descriptive-name
+   ```
+
+2. **Implement Changes**
+   - Write code following our standards
+   - Add comprehensive tests
+   - Update documentation as needed
+
+3. **Quality Checks**
+   ```bash
+   make test     # Run full test suite
+   make lint     # Check code quality
+   make docs     # Verify documentation builds
+   ```
+
+4. **Submit Pull Request**
+   - Use the provided PR template
+   - Link related issues
+   - Request review from maintainers
+
+5. **Review Process**
+   - Address reviewer feedback promptly
+   - Keep PR scope focused and manageable
+   - Ensure CI/CD checks pass
+
+### Recognition
+
+Contributors are recognized in:
+- [CHANGELOG.md](CHANGELOG.md) for each release
+- GitHub contributors page
+- Special mentions for significant contributions
+
+For questions about contributing, join our [GitHub Discussions](https://github.com/AvaPrime/docfoundry/discussions) or reach out to the maintainers.
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## 🔧 Troubleshooting
 
-- **Documentation**: [Full documentation](https://docfoundry.readthedocs.io) (coming soon)
-- **Issues**: [GitHub Issues](https://github.com/codessa-prime/docfoundry/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/codessa-prime/docfoundry/discussions)
-- **Email**: support@docfoundry.dev
+### Common Issues
+
+**Installation Problems**
+```bash
+# Python version issues
+python --version  # Should be 3.11+
+
+# Virtual environment activation
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
+# Dependency conflicts
+pip install --upgrade pip
+pip install -r requirements.txt --force-reinstall
+```
+
+**Database Issues**
+```bash
+# SQLite permissions
+chmod 664 docfoundry.db
+chmod 775 $(dirname docfoundry.db)
+
+# PostgreSQL connection
+psql $DATABASE_URL -c "SELECT version();"
+
+# Reset database
+rm docfoundry.db  # SQLite only
+python indexer/build_index.py
+```
+
+**API Server Problems**
+```bash
+# Port already in use
+lsof -i :8001  # Find process using port
+kill -9 <PID>  # Kill process
+
+# Check server logs
+uvicorn server.rag_api:app --log-level debug
+
+# Test API health
+curl http://localhost:8001/health
+```
+
+**Search Issues**
+```bash
+# Rebuild search index
+python indexer/build_index.py --force
+
+# Check index statistics
+curl http://localhost:8001/stats
+
+# Verify source configuration
+python -c "from sources.loader import load_sources; print(load_sources())"
+```
+
+### Performance Optimization
+
+**For Large Datasets:**
+- Use PostgreSQL with pgvector for production
+- Enable database connection pooling
+- Configure appropriate chunk sizes in source configs
+- Monitor memory usage during indexing
+
+**Search Performance:**
+- Use specific source filters when possible
+- Limit result counts for broad queries
+- Consider semantic search for conceptual queries
+- Use full-text search for exact term matching
+
+### Getting Help
+
+If you encounter issues not covered here:
+1. Check the [FAQ section](https://github.com/AvaPrime/docfoundry/discussions/categories/q-a)
+2. Search existing [issues](https://github.com/AvaPrime/docfoundry/issues)
+3. Create a new issue with detailed information
+4. Join our community discussions for real-time help
+
+## 🆘 Support & Community
+
+### Documentation & Resources
+- **📚 Full Documentation**: [DocFoundry Docs](https://docfoundry.readthedocs.io) (coming soon)
+- **🎯 Quick Start Guide**: See [Quick Start](#-quick-start) section above
+- **🔧 API Reference**: Available at `/docs` endpoint when server is running
+- **📋 Examples**: Check the `examples/` directory for usage patterns
+
+### Community Support
+- **💬 GitHub Discussions**: [Join conversations](https://github.com/AvaPrime/docfoundry/discussions)
+  - Q&A for usage questions
+  - Feature discussions and feedback
+  - Show and tell your implementations
+- **🐛 Issue Tracker**: [Report bugs](https://github.com/AvaPrime/docfoundry/issues)
+- **📧 Email Support**: support@docfoundry.dev (for security issues)
+
+### Response Times
+- **Community Support**: Best effort, typically within 24-48 hours
+- **Bug Reports**: Acknowledged within 48 hours, fix timeline depends on severity
+- **Security Issues**: Acknowledged within 24 hours, patches prioritized
+
+### Contributing to Support
+Help others by:
+- Answering questions in discussions
+- Improving documentation
+- Sharing usage examples and tutorials
+- Reporting and helping fix bugs
 
 ## 🙏 Acknowledgments
 
