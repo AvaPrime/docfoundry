@@ -50,7 +50,7 @@ Violations of the code of conduct should be reported to the project maintainers.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/docfoundry.git
+git clone https://github.com/codessa-prime/docfoundry.git
 cd docfoundry
 
 # Create virtual environment

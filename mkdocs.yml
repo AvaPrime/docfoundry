@@ -16,6 +16,9 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - OpenTelemetry Integration: opentelemetry-integration.md
+  - PostgreSQL Migration: postgres-migration.md
+  - Performance Optimizations: performance_optimizations_report.md
   - Research: research/README.md
   - Vendors: 
       - (placeholder): vendors/.gitkeep
