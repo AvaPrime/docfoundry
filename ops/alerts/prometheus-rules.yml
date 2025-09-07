@@ -1,0 +1,60 @@
+groups:
+- name: docfoundry-api.rules
+  rules:
+  - alert: APILatencyP95High
+    expr: |
+      histogram_quantile(0.95, sum(rate(docfoundry_request_duration_seconds_bucket[5m])) by (le)) > 0.75
+    for: 10m
+    labels:
+      severity: warning
+      service: docfoundry-api
+    annotations:
+      summary: "API p95 latency high"
+      description: "p95 latency > 750ms for 10m. Investigate DB load, vector probes, reranker usage, or hot partitions."
+
+  - alert: APINoTraffic
+    expr: |
+      sum(rate(docfoundry_requests_total[15m])) == 0
+    for: 15m
+    labels:
+      severity: info
+      service: docfoundry-api
+    annotations:
+      summary: "No API traffic in the last 15m"
+      description: "If unexpected, check ingress, DNS, or upstream clients."
+
+- name: docfoundry-worker.rules
+  rules:
+  - alert: WorkerNoCrawlProgress
+    expr: |
+      (docfoundry_active_crawls > 0)
+      and (increase(docfoundry_crawled_pages_total[30m]) == 0)
+    for: 30m
+    labels:
+      severity: warning
+      service: docfoundry-worker
+    annotations:
+      summary: "Crawler stalled"
+      description: "Active crawl detected but no pages processed in 30m. Check robots, rate limiting, or target availability."
+
+  - alert: WorkerErrorSpike
+    expr: |
+      increase(docfoundry_crawled_pages_total{status="error"}[10m]) > 10
+    for: 10m
+    labels:
+      severity: critical
+      service: docfoundry-worker
+    annotations:
+      summary: "Crawler error spike"
+      description: "More than 10 page failures in 10m. Inspect logs and network conditions."
+
+- name: prometheus.rules
+  rules:
+  - alert: PrometheusTargetMissing
+    expr: up == 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "A Prometheus target is down"
+      description: "Check the target service or endpoint."

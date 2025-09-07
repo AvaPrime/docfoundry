@@ -1,0 +1,16 @@
+# Test source configuration
+name: test
+description: Test source for crawler validation
+base_urls:
+  - https://example.com
+rate_limit: 1.0  # seconds between requests
+depth: 2
+include:
+  - ".*"
+exclude:
+  - ".*\\.(pdf|doc|docx|xls|xlsx)$"
+allowed_licenses:
+  - MIT
+  - Apache-2.0
+  - BSD-3-Clause
+strict_mode: false

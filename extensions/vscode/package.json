@@ -1,0 +1,33 @@
+{
+  "name": "docfoundry",
+  "displayName": "DocFoundry",
+  "description": "Intelligent documentation search and retrieval from your DocFoundry knowledge base. Search across multiple sources with semantic and hybrid search capabilities.",
+  "publisher": "codessa",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "onCommand:docfoundry.search"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "docfoundry.search",
+        "title": "DocFoundry: Search Docs"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {}
+}

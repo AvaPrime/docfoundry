@@ -1,0 +1,99 @@
+# Policy Configuration for DocFoundry
+# This file defines compliance settings for robots.txt parsing and content filtering
+
+# Default user agent for robots.txt requests
+user_agent: "DocFoundry/1.0 (+https://github.com/docfoundry/docfoundry)"
+
+# Robots.txt cache settings
+robots_cache:
+  ttl_hours: 24  # Cache robots.txt for 24 hours
+  max_entries: 1000  # Maximum number of cached robots.txt entries
+
+# Default allowed licenses (SPDX identifiers)
+allowed_licenses:
+  - "MIT"
+  - "Apache-2.0"
+  - "BSD-2-Clause"
+  - "BSD-3-Clause"
+  - "CC-BY-4.0"
+  - "CC-BY-SA-4.0"
+  - "ISC"
+  - "Unlicense"
+  - "0BSD"
+
+# Content filtering settings
+content_filtering:
+  # Whether to respect noai directives
+  respect_noai: true
+  
+  # Whether to check license compatibility
+  check_licenses: true
+  
+  # Whether to be strict about policy violations
+  strict_mode: false  # If true, any violation blocks content
+  
+  # Custom noai patterns (regex)
+  custom_noai_patterns:
+    - "<meta\\s+name=[\"\\']robots[\"\\']\\s+content=[\"\\'][^\"\\'>]*noai[^\"\\'>]*[\"\\']>"
+    - "<meta\\s+name=[\"\\']googlebot[\"\\']\\s+content=[\"\\'][^\"\\'>]*noai[^\"\\'>]*[\"\\']>"
+    - "<!--\\s*noai\\s*-->"
+    - "data-noai=[\"\\']true[\"\\']"
+
+# Crawl behavior settings
+crawl_settings:
+  # Default crawl delay if not specified in robots.txt (seconds)
+  default_crawl_delay: 1.0
+  
+  # Maximum crawl delay to respect (seconds)
+  max_crawl_delay: 30.0
+  
+  # Whether to respect crawl delays from robots.txt
+  respect_crawl_delay: true
+  
+  # Timeout for robots.txt requests (seconds)
+  robots_timeout: 10
+
+# Violation handling
+violation_handling:
+  # Log level for policy violations
+  log_level: "WARNING"  # DEBUG, INFO, WARNING, ERROR
+  
+  # Whether to store violations in database
+  store_violations: true
+  
+  # Maximum violations to store per URL
+  max_violations_per_url: 10
+
+# Source-specific overrides
+source_overrides:
+  # Example: Override settings for specific sources
+  # github:
+  #   allowed_licenses:
+  #     - "MIT"
+  #     - "Apache-2.0"
+  #   respect_noai: false
+  
+  # stackoverflow:
+  #   allowed_licenses:
+  #     - "CC-BY-SA-4.0"
+  #   strict_mode: true
+
+# Whitelist/blacklist patterns
+url_patterns:
+  # URLs matching these patterns are always allowed (regex)
+  whitelist:
+    - "^https://github\\.com/.*\\.md$"  # GitHub markdown files
+    - "^https://docs\\..*/.*$"  # Documentation sites
+  
+  # URLs matching these patterns are always blocked (regex)
+  blacklist:
+    - ".*\\\\.pdf$"  # PDF files (example)
+    - "^https://.*\\\\.onion/.*$"  # Tor hidden services
+
+# Monitoring and metrics
+monitoring:
+  # Whether to collect policy compliance metrics
+  collect_metrics: true
+  
+  # Metrics retention period (days)
+  metrics_retention_days: 30

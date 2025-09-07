@@ -1,0 +1,24 @@
+site_name: DocFoundry - Intelligent Documentation System
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - content.code.copy
+plugins:
+  - search
+  - include-markdown
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - OpenTelemetry Integration: opentelemetry-integration.md
+  - PostgreSQL Migration: postgres-migration.md
+  - Performance Optimizations: performance_optimizations_report.md
+  - Research: research/README.md
+  - Vendors: 
+      - (placeholder): vendors/.gitkeep
