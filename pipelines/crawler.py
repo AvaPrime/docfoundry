@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import aiohttp
-import asyncio
 from bs4 import BeautifulSoup
 
 from .policy import check_url_policy, policy_checker, PolicyViolation
