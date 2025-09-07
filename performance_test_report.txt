@@ -1,0 +1,36 @@
+================================================================================
+DOCFOUNDRY PERFORMANCE OPTIMIZATION TEST REPORT
+================================================================================
+Total Tests: 5
+Passed: 4
+Failed: 1
+Success Rate: 80.0%
+
+[PASS] Database Connection Pooling (1.14s)
+  - concurrent_requests: 20
+  - successful_responses: 20
+  - avg_response_time: 0.05691350698471069
+
+[PASS] Search Caching Performance (0.90s)
+  - first_request_time: 0.7689719200134277
+  - cached_request_time: 0.13163447380065918
+  - cache_improvement_ratio: 5.841721380509496
+
+[FAIL] Monitoring Endpoints (0.05s)
+  - metrics_fields: ['summary', 'endpoints', 'timestamp']
+  - health_fields: ['status', 'timestamp', 'version', 'components', 'system', 'performance']
+
+[PASS] Search Performance Optimization (0.87s)
+  - total_searches: 5
+  - average_search_time: 0.14091925621032714
+  - max_search_time: 0.16011524200439453
+  - min_search_time: 0.1148843765258789
+
+[PASS] Concurrent Search Load (3.85s)
+  - concurrent_requests: 15
+  - successful_responses: 15
+  - failed_responses: 0
+  - success_rate: 1.0
+  - requests_per_second: 3.8987557047935604
+
+================================================================================

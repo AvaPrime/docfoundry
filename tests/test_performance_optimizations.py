@@ -371,7 +371,7 @@ class PerformanceTestSuite:
         report.append("")
         
         for result in results:
-            status = "✓ PASSED" if result.success else "✗ FAILED"
+            status = "[PASS]" if result.success else "[FAIL]"
             report.append(f"{status} {result.test_name} ({result.duration:.2f}s)")
             
             if result.additional_metrics:
@@ -399,7 +399,7 @@ async def main():
         
         # Save report to file
         report_path = Path("performance_test_report.txt")
-        with open(report_path, "w") as f:
+        with open(report_path, "w", encoding="utf-8") as f:
             f.write(report)
         
         logger.info(f"Test report saved to {report_path}")
