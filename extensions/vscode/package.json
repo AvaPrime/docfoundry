@@ -1,7 +1,7 @@
 {
   "name": "docfoundry",
   "displayName": "DocFoundry",
-  "description": "Search and insert documentation snippets from your local DocFoundry RAG service.",
+  "description": "Intelligent documentation search and retrieval from your DocFoundry knowledge base. Search across multiple sources with semantic and hybrid search capabilities.",
   "publisher": "codessa",
   "version": "0.0.1",
   "engines": {

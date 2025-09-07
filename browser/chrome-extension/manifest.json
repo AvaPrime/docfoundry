@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DocFoundry Capture",
   "version": "0.0.1",
-  "description": "Capture the current page into DocFoundry research notes.",
+  "description": "Capture web pages and documentation into your DocFoundry intelligent knowledge base for searchable research notes.",
   "permissions": [
     "activeTab",
     "scripting"
