@@ -3,6 +3,7 @@
 Provides SSRF protection and URL validation to prevent requests to private IP ranges and local files.
 """
 
+import asyncio
 import ipaddress
 import socket
 from typing import Optional, Set, Tuple
@@ -178,9 +179,20 @@ def check_url_ssrf(url: str) -> None:
         logger.warning(f"SSRF protection blocked URL: {url} - {error_msg}")
         raise SSRFError(f"URL blocked by SSRF protection: {error_msg}")
 
-def get_safe_connector():
-    """Get aiohttp connector with SSRF protection.
+def _ensure_event_loop():
+    """Ensure there's a running event loop for aiohttp connectors created from synchronous code."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+def get_safe_connector(**kwargs):
+    """Return an SSRF-protected aiohttp connector that's safe to call from synchronous code.
     
+    Args:
+        **kwargs: Additional arguments to pass to the connector
+        
     Returns:
         aiohttp.TCPConnector configured for security
     """
@@ -211,4 +223,20 @@ def get_safe_connector():
             # Proceed with normal resolution
             return await super()._resolve_host(host, port, traces)
     
-    return SSRFProtectedConnector()
+    # Ensure event loop exists before creating connector
+    _ensure_event_loop()
+    
+    # Create connector in a way that's safe for synchronous contexts
+    try:
+        # Try to get running loop first
+        asyncio.get_running_loop()
+        return SSRFProtectedConnector(**kwargs)
+    except RuntimeError:
+        # No running loop - create connector with temporary loop context
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Create the connector - it will use the set event loop
+        return SSRFProtectedConnector(**kwargs)
