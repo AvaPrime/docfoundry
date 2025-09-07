@@ -16,6 +16,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from .policy import check_url_policy, policy_checker, PolicyViolation
+from .security import check_url_ssrf, SSRFError, get_safe_connector
 from sources.loader import load_source_config, SourceConfig
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,9 @@ class WebCrawler:
     
     async def __aenter__(self):
         """Async context manager entry."""
-        connector = aiohttp.TCPConnector(limit=self.max_concurrent * 2)
+        # Use SSRF-protected connector
+        connector = get_safe_connector()
+        connector._limit = self.max_concurrent * 2
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         
         self.session = aiohttp.ClientSession(
@@ -173,7 +176,19 @@ class WebCrawler:
         start_time = time.time()
         
         try:
-            # Check policy compliance first
+            # SSRF protection check first
+            try:
+                check_url_ssrf(url)
+            except SSRFError as e:
+                logger.warning(f"SSRF protection blocked URL {url}: {e}")
+                return CrawlResult(
+                    url=url,
+                    status_code=403,
+                    error=f"SSRF protection: {str(e)}",
+                    response_time=time.time() - start_time
+                )
+            
+            # Check policy compliance
             policy_result = await check_url_policy(url, source_name=source_name)
             
             if not policy_result or not policy_result.get('overall_compliant', False):
