@@ -1,0 +1,57 @@
+# Prometheus configuration for DocFoundry production monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'docfoundry-prod'
+    
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+  
+scrape_configs:
+  # DocFoundry API metrics
+  - job_name: 'docfoundry-api'
+    static_configs:
+      - targets: ['docfoundry-api:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    
+  # DocFoundry Worker metrics (if exposed)
+  - job_name: 'docfoundry-worker'
+    static_configs:
+      - targets: ['docfoundry-worker:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+      
+  # Node exporter for system metrics (if deployed)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+    
+  # Redis exporter for cache metrics (if deployed)
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+    
+  # PostgreSQL exporter for database metrics (if deployed)
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093

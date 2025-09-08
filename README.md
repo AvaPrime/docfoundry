@@ -21,6 +21,10 @@ A comprehensive **Documentation Intelligence System** that transforms scattered 
 - **🎯 Smart Chunking**: Advanced document chunking with context preservation and metadata extraction
 - **📊 Analytics & Monitoring**: Comprehensive observability with OpenTelemetry, performance metrics, and search analytics
 - **🔌 Developer Integrations**: VS Code extension, Chrome extension, and MCP server support
+- **📈 Data Lineage Tracking**: Complete audit trail of document processing with version tracking and change detection
+- **⚡ Incremental Processing**: Efficient content updates with hash-based change detection and selective reprocessing
+- **🔒 Enhanced Security**: Rate limiting, input validation, CORS protection, and security headers
+- **🎯 Performance Gates**: Automated performance monitoring with configurable thresholds and alerts
 
 ### Architecture Components
 - **📖 Documentation Site**: MkDocs-powered human-readable documentation (`mkdocs.yml`, `docs/`)
@@ -30,6 +34,9 @@ A comprehensive **Documentation Intelligence System** that transforms scattered 
 - **🌐 RAG API**: FastAPI-based REST API with search, document retrieval, and capture endpoints (`server/`)
 - **🛠️ Development Tools**: VS Code extension for in-editor search and Chrome extension for content capture
 - **📋 Automation**: Comprehensive Makefile with development and deployment tasks
+- **🔄 Shared Services**: Data models, incremental processing, and lineage tracking (`services/shared/`)
+- **📊 Lineage API**: RESTful endpoints for data lineage management and audit trails (`services/api/`)
+- **🛠️ Migration Tools**: Database migration helpers and data consistency utilities (`scripts/`)
 
 ### Database Support
 - **SQLite + FTS5**: Lightweight local development with full-text search
@@ -167,6 +174,24 @@ curl "http://localhost:8001/doc?path=docs/vendors/example/setup.md"
 curl -X POST http://localhost:8001/capture \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://example.com/article", "title": "Important Article"}'
+
+# Data Lineage API
+# Get lineage summary
+curl "http://localhost:8001/lineage/summary"
+
+# Find documents needing reprocessing
+curl "http://localhost:8001/lineage/reprocessing-candidates?chunker_version=2.0"
+
+# Get document lineage history
+curl "http://localhost:8001/lineage/document/123"
+
+# Trigger reprocessing
+curl -X POST "http://localhost:8001/lineage/reprocess/123" \
+  -H 'Content-Type: application/json' \
+  -d '{"force": false}'
+
+# Performance monitoring
+curl "http://localhost:8001/performance/health"
 ```
 
 #### Development Tools
@@ -201,6 +226,22 @@ CRAWL_RESPECT_ROBOTS=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 OTEL_SERVICE_NAME=docfoundry
 ENABLE_METRICS=true
+
+# Security Configuration
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_WINDOW=60
+CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+SECURE_HEADERS=true
+
+# Performance Gates
+PERFORMANCE_THRESHOLD_RESPONSE_TIME=2000
+PERFORMANCE_THRESHOLD_ERROR_RATE=0.05
+PERFORMANCE_MONITORING_ENABLED=true
+
+# Lineage Tracking
+LINEAGE_RETENTION_DAYS=90
+INCREMENTAL_PROCESSING=true
+CONTENT_HASH_ALGORITHM=sha256
 ```
 
 ### Database Setup
@@ -261,14 +302,22 @@ docker run -p 8001:8001 \
 - SQLite and PostgreSQL support with pgvector
 - OpenTelemetry observability integration
 - MCP server protocol support
+- **Data lineage tracking** with complete audit trails
+- **Incremental processing** with hash-based change detection
+- **Enhanced security** with rate limiting and input validation
+- **Performance monitoring** with automated gates and alerts
+- **Production-ready deployment** with Docker Compose
+- **Database migrations** with Alembic integration
 
 ### Planned Enhancements 🚧
 - **Advanced Workflow Orchestration**: Temporal integration for complex pipelines
 - **Enhanced AI Integration**: LLM-powered content summarization and tagging
-- **Enterprise Features**: RBAC, audit logging, and compliance tools
-- **Performance Optimizations**: Distributed indexing and caching layers
+- **Enterprise Features**: RBAC, advanced audit logging, and compliance tools
+- **Performance Optimizations**: Distributed indexing and Redis caching layers
 - **Content Intelligence**: Automatic content categorization and relationship mapping
 - **API Enhancements**: GraphQL support and webhook integrations
+- **Advanced Analytics**: Search behavior analysis and content recommendation engine
+- **Multi-tenant Support**: Organization-based data isolation and access control
 
 ## 🤝 Contributing
 

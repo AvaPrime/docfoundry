@@ -1,3 +1,5 @@
+"""Observability package for DocFoundry."""
+
 from .telemetry import (
     init_telemetry,
     get_tracer,
@@ -16,6 +18,16 @@ from .metrics import (
     APIMetrics
 )
 from .logging import setup_logging, get_logger
+from .prometheus_metrics import (
+    setup_prometheus_metrics,
+    record_search_metrics,
+    record_indexing_metrics,
+    record_db_metrics,
+    update_system_metrics,
+    get_metrics_summary,
+    PrometheusMiddleware,
+    docfoundry_registry
+)
 
 __all__ = [
     'init_telemetry',
@@ -32,5 +44,13 @@ __all__ = [
     'IndexingMetrics',
     'APIMetrics',
     'setup_logging',
-    'get_logger'
+    'get_logger',
+    'setup_prometheus_metrics',
+    'record_search_metrics',
+    'record_indexing_metrics',
+    'record_db_metrics',
+    'update_system_metrics',
+    'get_metrics_summary',
+    'PrometheusMiddleware',
+    'docfoundry_registry'
 ]

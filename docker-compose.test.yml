@@ -1,0 +1,129 @@
+# Docker Compose test overlay for DocFoundry performance testing
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.test.yml up
+
+version: '3.8'
+
+services:
+  api:
+    environment:
+      - ENVIRONMENT=test
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/docfoundry_test
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+      - ENABLE_METRICS=true
+      - RATE_LIMIT_ENABLED=false  # Disable for testing
+      - CORS_ORIGINS=*
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    environment:
+      - ENVIRONMENT=test
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/docfoundry_test
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+      - WORKER_CONCURRENCY=2  # Reduced for testing
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    environment:
+      - POSTGRES_DB=docfoundry_test
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_INITDB_ARGS=--auth-host=trust
+    ports:
+      - "5432:5432"
+    volumes:
+      # Use tmpfs for faster test runs
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+        tmpfs:
+          size: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d docfoundry_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    ports:
+      - "6379:6379"
+    volumes:
+      # Use tmpfs for faster test runs
+      - type: tmpfs
+        target: /data
+        tmpfs:
+          size: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Test-specific services
+  k6:
+    image: grafana/k6:latest
+    profiles:
+      - testing
+    volumes:
+      - ./ops/k6:/scripts
+      - ./k6-results:/results
+    environment:
+      - API_URL=http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for API to be ready...'
+        sleep 10
+        echo 'Running smoke test...'
+        k6 run /scripts/query-smoke.js --out json=/results/smoke-results.json
+        echo 'Running stress test...'
+        k6 run /scripts/stress-test.js --out json=/results/stress-results.json
+      "
+
+  # Test data seeder
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    profiles:
+      - seeding
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/docfoundry_test
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/app/scripts
+    command: python scripts/seed_performance_data.py
+
+volumes:
+  k6-results:
+    driver: local
+
+networks:
+  default:
+    name: docfoundry-test

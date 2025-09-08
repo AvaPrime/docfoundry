@@ -1,0 +1,59 @@
+{
+  "default_base_branch": "main",
+  "auto_sync_interval": 300,
+  "branch_naming_patterns": {
+    "feature": "feature/{issue_id}-{description}",
+    "bugfix": "bugfix/{issue_id}-{description}",
+    "hotfix": "hotfix/{version}-{description}",
+    "release": "release/{version}",
+    "experimental": "experimental/{description}"
+  },
+  "merge_strategies": {
+    "feature": "squash",
+    "bugfix": "squash",
+    "hotfix": "merge",
+    "release": "merge",
+    "experimental": "squash"
+  },
+  "auto_merge_rules": {
+    "require_ci_pass": true,
+    "require_reviews": 1,
+    "require_up_to_date": true,
+    "dismiss_stale_reviews": true
+  },
+  "protection_rules": {
+    "main": {
+      "required_status_checks": ["ci"],
+      "enforce_admins": false,
+      "required_pull_request_reviews": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews": true
+      }
+    }
+  },
+  "workflow_automation": {
+    "auto_create_pr_on_push": true,
+    "auto_delete_merged_branches": true,
+    "auto_sync_main_daily": true,
+    "notification_channels": {
+      "slack_webhook": null,
+      "email_notifications": true
+    }
+  },
+  "branch_policies": {
+    "max_branch_age_days": 30,
+    "require_linear_history": true,
+    "allow_force_push": false,
+    "require_signed_commits": false
+  },
+  "integration_settings": {
+    "github_cli_path": "gh",
+    "git_path": "git",
+    "enable_hooks": true,
+    "hook_scripts": {
+      "pre_merge": "automation/hooks/pre_merge.py",
+      "post_merge": "automation/hooks/post_merge.py",
+      "branch_created": "automation/hooks/branch_created.py"
+    }
+  }
+}

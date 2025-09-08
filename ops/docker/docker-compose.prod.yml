@@ -1,0 +1,189 @@
+# Production Docker Compose configuration for DocFoundry
+# Based on PR4 production compose requirements
+
+version: '3.8'
+
+services:
+  docfoundry-api:
+    image: docfoundry/api:${DOCFOUNDRY_VERSION:-latest}
+    container_name: docfoundry-api
+    restart: unless-stopped
+    
+    environment:
+      # Database
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      
+      # Search & Indexing
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL}
+      - VECTOR_DB_URL=${VECTOR_DB_URL}
+      
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - API_KEY_SALT=${API_KEY_SALT}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://docfoundry.com}
+      
+      # Rate Limiting
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_REDIS_URL=${REDIS_URL}
+      
+      # Observability
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SENTRY_DSN=${SENTRY_DSN}
+      
+      # Performance
+      - WORKER_PROCESSES=${API_WORKER_PROCESSES:-4}
+      - MAX_CONNECTIONS=${API_MAX_CONNECTIONS:-1000}
+      
+    ports:
+      - "8000:8000"
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+          
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        
+    networks:
+      - docfoundry-network
+      
+  docfoundry-worker:
+    image: docfoundry/worker:${DOCFOUNDRY_VERSION:-latest}
+    container_name: docfoundry-worker
+    restart: unless-stopped
+    
+    environment:
+      # Database
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      
+      # Search & Indexing
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL}
+      - VECTOR_DB_URL=${VECTOR_DB_URL}
+      
+      # Worker Configuration
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
+      - WORKER_PREFETCH=${WORKER_PREFETCH:-1}
+      - WORKER_MAX_TASKS_PER_CHILD=${WORKER_MAX_TASKS_PER_CHILD:-1000}
+      
+      # Processing
+      - CHUNK_SIZE=${CHUNK_SIZE:-1000}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      
+      # Observability
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SENTRY_DSN=${SENTRY_DSN}
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+          
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.from_url('${REDIS_URL}'); r.ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        
+    networks:
+      - docfoundry-network
+      
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: docfoundry-prometheus
+    restart: unless-stopped
+    
+    ports:
+      - "9090:9090"
+      
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+      
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+          
+    networks:
+      - docfoundry-network
+      
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: docfoundry-grafana
+    restart: unless-stopped
+    
+    ports:
+      - "3000:3000"
+      
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      
+    volumes:
+      - grafana-data:/var/lib/grafana
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+          
+    networks:
+      - docfoundry-network
+
+networks:
+  docfoundry-network:
+    driver: bridge
+    
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

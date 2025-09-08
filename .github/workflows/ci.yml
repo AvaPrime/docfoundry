@@ -1,36 +1,184 @@
-name: ci
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: '0 2 * * *'  # Run nightly at 2 AM UTC
+  workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  build-test:
+  test:
     runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docfoundry_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
-      - name: Lint & unit tests
-        run: |
-          python -m pytest -q || true  # keep pipeline permissive until tests exist
-      - name: Build Docker images
-        run: |
-          docker build -t docfoundry-api -f services/api/Dockerfile .
-          docker build -t docfoundry-worker -f services/worker/Dockerfile .
-          docker build -t docfoundry-mcp -f services/mcp/Dockerfile .
-      - name: Save Docker images
-        uses: actions/upload-artifact@v4
-        with:
-          name: images
-          path: |
-            **/Dockerfile
-  # Optional: push to registry & run migrations in staging
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run unit tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docfoundry_test
+        REDIS_URL: redis://localhost:6379
+      run: |
+        python -m pytest tests/ -v
+    
+    - name: Start application services
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docfoundry_test
+        REDIS_URL: redis://localhost:6379
+        ENVIRONMENT: test
+      run: |
+        # Start API server in background
+        python -m uvicorn server.rag_api:app --host 0.0.0.0 --port 8080 &
+        sleep 10
+        
+        # Wait for API to be ready
+        timeout 30 bash -c 'until curl -f http://localhost:8080/healthz; do sleep 1; done'
+    
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+    
+    - name: Run performance smoke tests
+      env:
+        API_URL: http://localhost:8080
+      run: |
+        k6 run ops/k6/query-smoke.js
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        pkill -f uvicorn || true
+
+  performance-nightly:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docfoundry_perf
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Seed performance test data
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docfoundry_perf
+        REDIS_URL: redis://localhost:6379
+      run: |
+        python scripts/seed_performance_data.py
+    
+    - name: Start application services
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docfoundry_perf
+        REDIS_URL: redis://localhost:6379
+        ENVIRONMENT: test
+      run: |
+        # Start API server in background
+        python -m uvicorn server.rag_api:app --host 0.0.0.0 --port 8080 &
+        sleep 15
+        
+        # Wait for API to be ready
+        timeout 60 bash -c 'until curl -f http://localhost:8080/healthz; do sleep 2; done'
+    
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+    
+    - name: Run comprehensive performance tests
+      env:
+        API_URL: http://localhost:8080
+      run: |
+        # Run smoke test first
+        k6 run ops/k6/query-smoke.js
+        
+        # Run stress test
+        k6 run ops/k6/stress-test.js
+    
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: performance-results
+        path: |
+          k6-results.json
+          performance-report.html
+        retention-days: 30
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        pkill -f uvicorn || true
