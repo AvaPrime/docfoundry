@@ -7,15 +7,22 @@ import asyncio
 import logging
 import time
 import random
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Set, Optional, Tuple, Any
 from urllib.parse import urljoin, urlparse, urlunparse
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import hashlib
+import json
+from pathlib import Path
 
 import aiohttp
 from bs4 import BeautifulSoup
 
+from .differential_chunker import DifferentialChunker
+from .indexer import get_document_metadata_for_url, should_recrawl_document
+
 from .policy import check_url_policy, policy_checker, PolicyViolation
+from .security import check_url_ssrf, SSRFError, get_safe_connector
 from sources.loader import load_source_config, SourceConfig
 
 logger = logging.getLogger(__name__)
@@ -33,6 +40,8 @@ class CrawlResult:
     response_time: Optional[float] = None
     retry_count: int = 0
     final_url: Optional[str] = None  # After redirects
+    etag: Optional[str] = None
+    last_modified: Optional[str] = None
     
     def __post_init__(self):
         if self.policy_violations is None:
@@ -75,7 +84,9 @@ class WebCrawler:
                  user_agent: str = None,
                  max_retries: int = 3,
                  retry_delay: float = 1.0,
-                 max_retry_delay: float = 60.0):
+                 max_retry_delay: float = 60.0,
+                 enable_incremental: bool = True,
+                 max_age_hours: int = 24):
         """Initialize crawler.
         
         Args:
@@ -85,6 +96,8 @@ class WebCrawler:
             max_retries: Maximum number of retry attempts
             retry_delay: Base delay between retries (seconds)
             max_retry_delay: Maximum delay between retries (seconds)
+            enable_incremental: Enable differential chunking
+            max_age_hours: Maximum age for incremental updates
         """
         self.max_concurrent = max_concurrent
         self.request_timeout = request_timeout
@@ -100,10 +113,17 @@ class WebCrawler:
         # Rate limiting
         self.last_request_time: Dict[str, float] = {}
         self.rate_limits: Dict[str, float] = {}
+        
+        # Differential chunking
+        self.enable_incremental = enable_incremental
+        self.max_age_hours = max_age_hours
+        self.differential_chunker = DifferentialChunker() if enable_incremental else None
     
     async def __aenter__(self):
         """Async context manager entry."""
-        connector = aiohttp.TCPConnector(limit=self.max_concurrent * 2)
+        # Use SSRF-protected connector
+        connector = get_safe_connector()
+        connector._limit = self.max_concurrent * 2
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         
         self.session = aiohttp.ClientSession(
@@ -173,7 +193,19 @@ class WebCrawler:
         start_time = time.time()
         
         try:
-            # Check policy compliance first
+            # SSRF protection check first
+            try:
+                check_url_ssrf(url)
+            except SSRFError as e:
+                logger.warning(f"SSRF protection blocked URL {url}: {e}")
+                return CrawlResult(
+                    url=url,
+                    status_code=403,
+                    error=f"SSRF protection: {str(e)}",
+                    response_time=time.time() - start_time
+                )
+            
+            # Check policy compliance
             policy_result = await check_url_policy(url, source_name=source_name)
             
             if not policy_result or not policy_result.get('overall_compliant', False):
@@ -186,6 +218,26 @@ class WebCrawler:
                     policy_violations=policy_result.get('violations', []) if policy_result else [],
                     response_time=time.time() - start_time
                 )
+            
+            # Check if incremental crawling is enabled and document exists
+            conditional_headers = {}
+            if self.enable_incremental:
+                metadata = get_document_metadata_for_url(url)
+                if metadata and not should_recrawl_document(url, max_age_hours=self.max_age_hours):
+                    logger.debug(f"Document {url} is up to date, skipping")
+                    return CrawlResult(
+                        url=url,
+                        status_code=304,
+                        error="Document up to date",
+                        response_time=time.time() - start_time
+                    )
+                
+                # Add conditional headers if we have metadata
+                if metadata:
+                    if metadata.get('etag'):
+                        conditional_headers['If-None-Match'] = metadata['etag']
+                    if metadata.get('last_modified'):
+                        conditional_headers['If-Modified-Since'] = metadata['last_modified']
             
             # Initialize session if not already done
             if not self.session:
@@ -201,7 +253,17 @@ class WebCrawler:
                     async with self.semaphore:
                         logger.debug(f"Fetching {url} (attempt {attempt + 1}/{self.max_retries + 1})")
                         
-                        async with self.session.get(url, allow_redirects=True) as response:
+                        async with self.session.get(url, allow_redirects=True, headers=conditional_headers) as response:
+                            # Handle 304 Not Modified
+                            if response.status == 304:
+                                logger.debug(f"Document {url} not modified (304)")
+                                return CrawlResult(
+                                    url=url,
+                                    status_code=304,
+                                    error="Not modified",
+                                    response_time=time.time() - start_time
+                                )
+                            
                             content_type = response.headers.get('content-type', '')
                             
                             # Check if we should retry based on status code
@@ -225,6 +287,11 @@ class WebCrawler:
                             
                             content = await response.text()
                             
+                            # Extract caching headers
+                            headers = dict(response.headers)
+                            etag = headers.get('ETag')
+                            last_modified = headers.get('Last-Modified')
+                            
                             # Check content policy
                             content_policy = policy_checker.check_content_policy(content, url, source_name=source_name)
                             
@@ -240,7 +307,9 @@ class WebCrawler:
                                 policy_violations=violations,
                                 response_time=time.time() - start_time,
                                 retry_count=attempt,
-                                final_url=str(response.url)
+                                final_url=str(response.url),
+                                etag=etag,
+                                last_modified=last_modified
                             )
                 
                 except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as e:
@@ -315,24 +384,50 @@ class WebCrawler:
     def _should_follow_link(self, url: str, base_domain: str, 
                            include_patterns: List[str] = None,
                            exclude_patterns: List[str] = None) -> bool:
-        """Check if a link should be followed."""
-        parsed = urlparse(url)
-        
-        # Only follow links on the same domain
-        if parsed.netloc != base_domain:
+        """Check if a link should be followed based on domain and patterns"""
+        try:
+            parsed = urlparse(url)
+            
+            # Only follow links on the same domain
+            if parsed.netloc and parsed.netloc != base_domain:
+                return False
+            
+            # Check include patterns
+            if include_patterns:
+                if not any(pattern in url for pattern in include_patterns):
+                    return False
+            
+            # Check exclude patterns
+            if exclude_patterns:
+                if any(pattern in url for pattern in exclude_patterns):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Error checking link {url}: {str(e)}")
             return False
+    
+    def process_incremental_update(self, url: str, old_content: str, new_content: str) -> Dict[str, Any]:
+        """Process incremental update using differential chunking"""
+        if not self.differential_chunker:
+            return {'full_reprocess': True}
         
-        # Check include patterns
-        if include_patterns:
-            if not any(pattern in url for pattern in include_patterns):
-                return False
-        
-        # Check exclude patterns
-        if exclude_patterns:
-            if any(pattern in url for pattern in exclude_patterns):
-                return False
-        
-        return True
+        try:
+            result = self.differential_chunker.generate_incremental_chunks(url, old_content, new_content)
+            
+            logger.info(
+                f"Incremental update for {url}: "
+                f"{result['stats']['reprocess_percentage']:.1f}% needs reprocessing "
+                f"({len(result['sections_to_reprocess'])} sections to update, "
+                f"{len(result['sections_to_delete'])} to delete)"
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in incremental processing for {url}: {str(e)}")
+            return {'full_reprocess': True}
     
     async def crawl_urls(self, urls: List[str], source_name: str, 
                         max_depth: int = 3) -> Tuple[List[CrawlResult], CrawlStats]:
