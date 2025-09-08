@@ -47,15 +47,54 @@ api: ## Start API server with auto-reload
 	@echo "$(BLUE)Starting API server on port $(PORT)...$(RESET)"
 	uvicorn server.rag_api:app --reload --port $(PORT)
 
-test: ## Run tests
-	@echo "$(BLUE)Running tests...$(RESET)"
-	$(PYTHON) -m pytest tests/ -v --cov=. --cov-report=html --cov-report=term 2>/dev/null || echo "$(YELLOW)Tests not found, skipping$(RESET)"
+test: ## Run all tests with coverage reporting
+	@echo "$(BLUE)Running tests with coverage...$(RESET)"
+	$(PYTHON) -m pytest tests/ --cov=. --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-report=json:coverage.json --cov-report=term-missing --cov-fail-under=75 -v
 	@echo "$(GREEN)Tests completed$(RESET)"
 
 test-fast: ## Run tests without coverage
 	@echo "$(BLUE)Running fast tests...$(RESET)"
-	$(PYTHON) -m pytest tests/ -v -x 2>/dev/null || echo "$(YELLOW)Tests not found, skipping$(RESET)"
+	$(PYTHON) -m pytest tests/ -v -x
 	@echo "$(GREEN)Fast tests completed$(RESET)"
+
+test-unit: ## Run unit tests only
+	@echo "$(BLUE)Running unit tests...$(RESET)"
+	$(PYTHON) -m pytest tests/ -m unit -v
+	@echo "$(GREEN)Unit tests completed$(RESET)"
+
+test-integration: ## Run integration tests only
+	@echo "$(BLUE)Running integration tests...$(RESET)"
+	$(PYTHON) -m pytest tests/ -m integration -v
+	@echo "$(GREEN)Integration tests completed$(RESET)"
+
+test-e2e: ## Run end-to-end tests only
+	@echo "$(BLUE)Running end-to-end tests...$(RESET)"
+	$(PYTHON) -m pytest tests/ -m e2e -v
+	@echo "$(GREEN)End-to-end tests completed$(RESET)"
+
+test-performance: ## Run performance tests only
+	@echo "$(BLUE)Running performance tests...$(RESET)"
+	$(PYTHON) -m pytest tests/ -m performance -v --durations=0
+	@echo "$(GREEN)Performance tests completed$(RESET)"
+
+test-security: ## Run security tests only
+	@echo "$(BLUE)Running security tests...$(RESET)"
+	$(PYTHON) -m pytest tests/ -m security -v
+	@echo "$(GREEN)Security tests completed$(RESET)"
+
+test-coverage: ## Generate detailed coverage report
+	@echo "$(BLUE)Generating coverage report...$(RESET)"
+	$(PYTHON) scripts/coverage_report.py
+	@echo "$(GREEN)Coverage report generated$(RESET)"
+
+test-coverage-html: ## Open HTML coverage report in browser
+	@echo "$(BLUE)Opening coverage report...$(RESET)"
+	$(PYTHON) -m pytest tests/ --cov=. --cov-report=html:htmlcov
+	@echo "$(GREEN)Coverage report available at htmlcov/index.html$(RESET)"
+
+test-watch: ## Run tests in watch mode (requires pytest-watch)
+	@echo "$(BLUE)Starting test watch mode...$(RESET)"
+	ptw -- tests/ --cov=. --cov-report=term-missing
 
 lint: ## Run linting checks
 	@echo "$(BLUE)Running linting checks...$(RESET)"
