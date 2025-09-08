@@ -1,0 +1,12 @@
+{
+  "auto_push_interval": 300,
+  "auto_pull_interval": 600,
+  "auto_sync_enabled": true,
+  "auto_pr_creation": true,
+  "auto_merge_enabled": false,
+  "working_hours_only": false,
+  "working_hours_start": 9,
+  "working_hours_end": 17,
+  "max_retries": 3,
+  "retry_delay": 30
+}
